@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Genaker ImageBundle Default Configuration
+ *
+ * @category    Genaker
+ * @package     Genaker_ImageBundle
+ * @author      Genaker
+ * @copyright   Copyright (c) 2024 Genaker
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
+    <default>
+        <genaker_imagebundle>
+            <general>
+                <signature_enabled>0</signature_enabled>
+                <signature_salt></signature_salt>
+                <regular_url_enabled>1</regular_url_enabled>
+                <gemini_api_key></gemini_api_key>
+                <lock_retry_count>3</lock_retry_count>
+                <use_file_manager_for_cache>0</use_file_manager_for_cache>
+            </general>
+            <limits>
+                <width>
+                    <min>20</min>
+                    <max>5000</max>
+                </width>
+                <height>
+                    <min>20</min>
+                    <max>5000</max>
+                </height>
+                <quality>
+                    <min>0</min>
+                    <max>100</max>
+                </quality>
+            </limits>
+            <allowed_aspect_values>inset,outbound</allowed_aspect_values>
+            <allowed_format_values>webp,jpg,jpeg,png,gif</allowed_format_values>
+        </genaker_imagebundle>
+    </default>
+</config>
+

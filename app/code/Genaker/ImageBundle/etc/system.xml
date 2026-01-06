@@ -1,0 +1,57 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Genaker ImageBundle System Configuration
+ *
+ * @category    Genaker
+ * @package     Genaker_ImageBundle
+ * @author      Genaker
+ * @copyright   Copyright (c) 2024 Genaker
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Config:etc/system_file.xsd">
+    <system>
+        <tab id="genaker" translate="label" sortOrder="200">
+            <label>Genaker</label>
+        </tab>
+        <section id="genaker_imagebundle" translate="label" type="text" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>Image Resize</label>
+            <tab>genaker</tab>
+            <resource>Genaker_ImageBundle::config</resource>
+            <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                <label>General Settings</label>
+                <field id="signature_enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Signature Validation</label>
+                    <comment>Enable signature validation for image resize URLs</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="signature_salt" translate="label comment" type="obscure" sortOrder="20" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Signature Salt</label>
+                    <comment>Secret salt for generating image resize URL signatures</comment>
+                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                </field>
+                <field id="regular_url_enabled" translate="label comment" type="select" sortOrder="30" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Enable Regular URL Format</label>
+                    <comment>Allow query string format URLs (e.g., ?w=100&h=100)</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+                <field id="gemini_api_key" translate="label comment" type="obscure" sortOrder="40" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Gemini API Key</label>
+                    <comment>Google Gemini API key for AI image modification</comment>
+                    <backend_model>Magento\Config\Model\Config\Backend\Encrypted</backend_model>
+                </field>
+                <field id="lock_retry_count" translate="label comment" type="text" sortOrder="50" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Lock Retry Count</label>
+                    <comment>Number of retries when acquiring lock for image processing</comment>
+                    <validate>validate-digits validate-greater-than-zero</validate>
+                </field>
+                <field id="use_file_manager_for_cache" translate="label comment" type="select" sortOrder="60" showInDefault="1" showInWebsite="1" showInStore="1">
+                    <label>Use File Manager for Cache</label>
+                    <comment>Use Magento file manager for cache tracking</comment>
+                    <source_model>Magento\Config\Model\Config\Source\Yesno</source_model>
+                </field>
+            </group>
+        </section>
+    </system>
+</config>
+

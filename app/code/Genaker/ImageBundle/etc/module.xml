@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Genaker ImageBundle Module Configuration
+ *
+ * @category    Genaker
+ * @package     Genaker_ImageBundle
+ * @author      Genaker
+ * @copyright   Copyright (c) 2024 Genaker
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:Module/etc/module.xsd">
+    <module name="Genaker_ImageBundle" setup_version="1.0.0">
+        <sequence>
+            <module name="Magento_Store"/>
+            <module name="Magento_Backend"/>
+            <module name="Magento_Config"/>
+        </sequence>
+    </module>
+</config>
+

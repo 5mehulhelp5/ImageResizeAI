@@ -1,0 +1,19 @@
+<?xml version="1.0"?>
+<!--
+/**
+ * Genaker ImageBundle Frontend Routes
+ *
+ * @category    Genaker
+ * @package     Genaker_ImageBundle
+ * @author      Genaker
+ * @copyright   Copyright (c) 2024 Genaker
+ */
+-->
+<config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:framework:App/etc/routes.xsd">
+    <router id="standard">
+        <route id="genaker_imagebundle" frontName="media">
+            <module name="Genaker_ImageBundle"/>
+        </route>
+    </router>
+</config>
+
