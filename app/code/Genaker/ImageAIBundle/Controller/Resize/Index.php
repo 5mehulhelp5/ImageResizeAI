@@ -50,6 +50,7 @@ class Index extends Action
 
     /**
      * Execute action
+     * Handles both base64 format ({base64}.{extension}) and query string format ({imagePath}?params)
      *
      * @return \Magento\Framework\Controller\ResultInterface
      */
@@ -61,6 +62,71 @@ class Index extends Action
             throw new NotFoundException(__('Image path is required'));
         }
 
+        // Check if imagePath is base64 encoded parameters (format: {base64}.{extension})
+        if (preg_match('/^([A-Za-z0-9_-]+)\.([a-z]+)$/i', $imagePath, $matches)) {
+            $possibleBase64 = $matches[1];
+            $extension = $matches[2];
+            
+            // Try to decode base64
+            $base64String = strtr($possibleBase64, '-_', '+/');
+            // Add padding if needed
+            $padding = strlen($base64String) % 4;
+            if ($padding > 0) {
+                $base64String .= str_repeat('=', 4 - $padding);
+            }
+            
+            $decoded = @base64_decode($base64String, true);
+            if ($decoded !== false && $this->isValidQueryString($decoded)) {
+                // This is base64 encoded parameters
+                parse_str($decoded, $base64Params);
+                // Extract image path from parameters
+                $actualImagePath = $base64Params['image'] ?? '/media/default.jpg';
+                // Extract signature if present
+                $providedSignature = $base64Params['sig'] ?? null;
+                // Remove 'image' and 'sig' from params for processing
+                unset($base64Params['image']);
+                unset($base64Params['sig']);
+                // Ensure format matches extension
+                if (!isset($base64Params['f'])) {
+                    $base64Params['f'] = $extension;
+                }
+                // Sort parameters to match cache file format
+                ksort($base64Params);
+                
+                // Validate signature if enabled
+                if ($this->isSignatureEnabled()) {
+                    $salt = $this->getSignatureSalt();
+                    if (!empty($salt)) {
+                        if (empty($providedSignature)) {
+                            throw new \Magento\Framework\Exception\SecurityException(__('Missing signature parameter (sig) in base64 URL'));
+                        }
+                        
+                        $expectedSignature = $this->generateSignature($actualImagePath, $base64Params, $salt);
+                        if (!hash_equals($expectedSignature, $providedSignature)) {
+                            throw new \Magento\Framework\Exception\SecurityException(__('Invalid signature in base64 URL'));
+                        }
+                    }
+                }
+                
+                // Use decoded parameters (signature already validated)
+                return $this->processResize($actualImagePath, $base64Params, true);
+            }
+        }
+        
+        // Query string format: check if regular URLs are enabled
+        if (!$this->isRegularUrlEnabled()) {
+            throw new \Magento\Framework\Exception\InputException(__('Regular URL format is disabled. Please use base64 encoded URLs only.'));
+        }
+        
+        // Query string format: extract image path and parameters
+        // Ensure image path starts with /
+        if (!str_starts_with($imagePath, '/')) {
+            $imagePath = '/' . $imagePath;
+        }
+        
+        // URL decode the image path in case it contains encoded characters
+        $imagePath = urldecode($imagePath);
+
         // Extract parameters from request
         $params = [
             'w' => $this->getRequest()->getParam('w'),
@@ -71,13 +137,44 @@ class Index extends Action
             'prompt' => $this->getRequest()->getParam('prompt'),
             'trim' => $this->getRequest()->getParam('trim'),
         ];
+        
+        // If format is not provided, infer from image extension
+        if (empty($params['f'])) {
+            $ext = pathinfo($imagePath, PATHINFO_EXTENSION);
+            if ($ext) {
+                $ext = strtolower($ext);
+                if ($ext === 'jpg') {
+                    $ext = 'jpeg';
+                }
+                $params['f'] = $ext;
+            } else {
+                $params['f'] = 'jpeg';
+            }
+        }
+        
+        return $this->processResize($imagePath, $params, false);
+    }
+
+    /**
+     * Process resize request
+     *
+     * @param string $imagePath
+     * @param array $params
+     * @param bool $skipSignatureValidation Skip signature validation (already validated for base64 URLs)
+     * @return \Magento\Framework\Controller\ResultInterface
+     */
+    private function processResize(string $imagePath, array $params, bool $skipSignatureValidation = false)
+    {
 
         try {
-            // Validate signature if enabled
+            // Validate signature if enabled (skip for base64 URLs as they're already validated)
             $allowPrompt = false;
-            if ($this->isSignatureEnabled()) {
+            if (!$skipSignatureValidation && $this->isSignatureEnabled()) {
                 $this->validateSignature($imagePath, $params);
                 // If signature is validated, allow prompts (signature provides security)
+                $allowPrompt = true;
+            } elseif ($skipSignatureValidation) {
+                // Base64 URLs already validated signature, allow prompts
                 $allowPrompt = true;
             } else {
                 // Check if user is admin (for cases without signature)
@@ -176,6 +273,54 @@ class Index extends Action
             // Ignore errors
         }
         return false;
+    }
+
+    /**
+     * Check if regular URL format is enabled
+     *
+     * @return bool
+     */
+    private function isRegularUrlEnabled(): bool
+    {
+        return (bool)$this->scopeConfig->getValue(
+            'genaker_imageaibundle/general/regular_url_enabled',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE,
+            true // Default to enabled
+        );
+    }
+
+    /**
+     * Get signature salt
+     *
+     * @return string
+     */
+    private function getSignatureSalt(): string
+    {
+        $salt = $this->scopeConfig->getValue(
+            'genaker_imageaibundle/general/signature_salt',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+        );
+
+        // Decrypt if encrypted
+        if ($salt && class_exists('\Magento\Framework\Encryption\EncryptorInterface')) {
+            $encryptor = \Magento\Framework\App\ObjectManager::getInstance()
+                ->get(\Magento\Framework\Encryption\EncryptorInterface::class);
+            $salt = $encryptor->decrypt($salt);
+        }
+
+        return $salt ?: '';
+    }
+
+    /**
+     * Check if decoded string is a valid query string
+     *
+     * @param string $string
+     * @return bool
+     */
+    private function isValidQueryString(string $string): bool
+    {
+        // Check if it contains at least one key=value pair
+        return preg_match('/^[a-zA-Z0-9_\.\[\]-]+=[^&]*(&[a-zA-Z0-9_\.\[\]-]+=[^&]*)*$/', $string) === 1;
     }
 }
 

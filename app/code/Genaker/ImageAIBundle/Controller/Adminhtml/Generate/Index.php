@@ -11,6 +11,7 @@
 namespace Genaker\ImageAIBundle\Controller\Adminhtml\Generate;
 
 use Genaker\ImageAIBundle\Api\ImageResizeServiceInterface;
+use Genaker\ImageAIBundle\Helper\ImageResizeUrl;
 use Magento\Backend\App\Action;
 use Magento\Backend\App\Action\Context;
 use Magento\Framework\Controller\Result\Json;
@@ -25,15 +26,18 @@ class Index extends Action
     const ADMIN_RESOURCE = 'Genaker_ImageAIBundle::config';
 
     private ImageResizeServiceInterface $imageResizeService;
+    private ImageResizeUrl $urlHelper;
     private LoggerInterface $logger;
 
     public function __construct(
         Context $context,
         ImageResizeServiceInterface $imageResizeService,
+        ImageResizeUrl $urlHelper,
         LoggerInterface $logger
     ) {
         parent::__construct($context);
         $this->imageResizeService = $imageResizeService;
+        $this->urlHelper = $urlHelper;
         $this->logger = $logger;
     }
 
@@ -55,17 +59,27 @@ class Index extends Action
         ];
 
         try {
-            // Generate resize URL
-            $baseUrl = $this->_url->getUrl('media/resize/index', ['imagePath' => $imagePath]);
-            $queryParams = array_filter($params, fn($value) => $value !== null);
-            $url = $baseUrl . '?' . http_build_query($queryParams);
+            // Filter out null values
+            $filteredParams = array_filter($params, fn($value) => $value !== null);
+            
+            // Generate base64 URL
+            $base64Url = $this->urlHelper->generateImageResizeUrl($imagePath, $filteredParams, true);
+            
+            // Generate regular URL
+            $regularUrl = $this->urlHelper->generateImageResizeUrl($imagePath, $filteredParams, false);
+            
+            // Get full URLs
+            $base64FullUrl = $this->_url->getBaseUrl() . ltrim($base64Url, '/');
+            $regularFullUrl = $regularUrl;
 
             /** @var Json $resultJson */
             $resultJson = $this->resultFactory->create(ResultFactory::TYPE_JSON);
             $resultJson->setData([
                 'success' => true,
-                'url' => $url,
-                'base64_url' => $url, // Simplified for Magento
+                'base64_url' => $base64Url,
+                'base64_full_url' => $base64FullUrl,
+                'regular_url' => $regularUrl,
+                'regular_full_url' => $regularFullUrl,
             ]);
 
             return $resultJson;

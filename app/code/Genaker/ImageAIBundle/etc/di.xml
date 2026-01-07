@@ -48,6 +48,7 @@
     <type name="Genaker\ImageAIBundle\Controller\Adminhtml\Generate\Index">
         <arguments>
             <argument name="imageResizeService" xsi:type="object">Genaker\ImageAIBundle\Service\ImageResizeService</argument>
+            <argument name="urlHelper" xsi:type="object">Genaker\ImageAIBundle\Helper\ImageResizeUrl</argument>
             <argument name="logger" xsi:type="object">Psr\Log\LoggerInterface</argument>
         </arguments>
     </type>
