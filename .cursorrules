@@ -1,0 +1,184 @@
+# Magento ImageAIBundle Project Context
+
+## Project Overview
+This is a Magento 2 module (`Genaker_ImageAIBundle`) for intelligent image resizing with caching and AI-powered image modification support using Google Gemini API. It's a port/adaptation of the OroCommerce `Hammer/Bundle/ImageResizeBundle`.
+
+## Key Features
+- On-the-fly image resizing with multiple formats (JPG, PNG, GIF, WebP)
+- Base64 encoded URL format for cleaner URLs
+- Regular query string URL format
+- Redis-based distributed locking to prevent race conditions
+- Google Gemini AI integration for image modification
+- Nginx cache optimization (serves cached images directly)
+- Signature validation for secure URLs
+- Admin URL generator tool
+
+## Project Structure
+
+### Core Services
+- `Service/ImageResizeService.php` - Main image resize service
+- `Service/LockManager.php` - Redis-based locking mechanism
+- `Service/GeminiImageModificationService.php` - Gemini AI integration
+- `Service/GeminiClientFactory.php` - Factory for Gemini client
+
+### Controllers
+- `Controller/Resize/Index.php` - Frontend image resize controller (handles both base64 and query string formats)
+- `Controller/Adminhtml/Generate/Index.php` - Admin URL generator
+
+### Helpers
+- `Helper/ImageResizeUrl.php` - URL generation helper (base64 and regular formats)
+
+### Models
+- `Model/ResizeResult.php` - Result model encapsulating resize operation results
+
+### Configuration Files
+- `etc/module.xml` - Module declaration
+- `etc/config.xml` - Default configuration values
+- `etc/system.xml` - Admin panel configuration fields
+- `etc/di.xml` - Dependency injection configuration
+- `etc/frontend/routes.xml` - Frontend routes
+- `etc/adminhtml/routes.xml` - Admin routes
+- `etc/acl.xml` - Access control list
+
+## Important Constants and Defaults
+
+### LockManager Constants
+- `DEFAULT_RETRY_COUNT = 3` - Default retry attempts for lock acquisition
+- `DEFAULT_TTL = 3.0` - Default lock TTL in seconds
+- `LOCK_PREFIX = 'IMAGE_RESIZE_LOCK_'` - Redis lock key prefix
+
+### Configuration Paths
+- `genaker_imageaibundle/general/signature_enabled` - Enable signature validation
+- `genaker_imageaibundle/general/signature_salt` - Signature salt (encrypted)
+- `genaker_imageaibundle/general/regular_url_enabled` - Enable regular URL format
+- `genaker_imageaibundle/general/gemini_api_key` - Gemini API key (encrypted)
+- `genaker_imageaibundle/general/lock_retry_count` - Lock retry count
+- `genaker_imageaibundle/limits/width/min` - Min width
+- `genaker_imageaibundle/limits/width/max` - Max width
+- `genaker_imageaibundle/limits/height/min` - Min height
+- `genaker_imageaibundle/limits/height/max` - Max height
+- `genaker_imageaibundle/limits/quality/min` - Min quality
+- `genaker_imageaibundle/limits/quality/max` - Max quality
+
+## URL Formats
+
+### Base64 Format
+`/media/resize/index/imagePath/{base64_encoded_params}.{extension}`
+- Example: `/media/resize/index/imagePath/dGVzdA.webp`
+- All parameters encoded in URL-safe base64
+- Nginx can serve directly from cache
+
+### Regular Format
+`/media/resize/index/imagePath/{imagePath}?w=100&h=100&f=webp&sig=signature`
+- Query string parameters
+- Requires `regular_url_enabled` config to be enabled
+
+## Locking Mechanism
+
+### Redis Cache Locking
+- Uses Magento's `FrontendInterface` (Redis cache backend)
+- Lock key format: `IMAGE_RESIZE_LOCK_{md5(imagePath|params)}`
+- Lock TTL: 3 seconds (configurable via constant)
+- Retry count: 3 attempts (configurable)
+- Prevents race conditions during concurrent image processing
+
+### Lock Flow
+1. Check if lock exists in Redis
+2. If not, acquire lock with TTL
+3. Double-check pattern for atomicity
+4. Process image
+5. Release lock in finally block
+
+## Gemini AI Integration
+
+### Service Flow
+1. Check if prompt is provided and allowed
+2. Validate admin session or signature
+3. Call Gemini API with image and prompt
+4. Save modified image to temporary file
+5. Use modified image for resize operation
+6. Clean up temporary file
+
+### Configuration
+- API key stored encrypted in system config
+- Model: `gemini-2.0-flash-exp` (default)
+- Requires `google/generative-ai-php` package
+
+## Nginx Configuration
+
+### Cache Optimization
+- Location: `^/media/resize/(.+)$`
+- Checks cache first: `/media/cache/resize/{filename}`
+- Falls back to PHP if cache miss
+- Sets cache headers for performance
+
+### Cache Headers
+- `Cache-Control: public, immutable`
+- `Expires: 1y`
+- `X-Cache-Status: HIT/MISS`
+- `X-Served-By: nginx/php`
+
+## Key Patterns
+
+### Dependency Injection
+- All services configured in `etc/di.xml`
+- Uses Magento's ObjectManager pattern
+- Prefers constructor injection
+
+### Configuration Management
+- Uses `ScopeConfigInterface` for system config
+- Encrypted values for sensitive data (API keys, salts)
+- Default values in `etc/config.xml`
+
+### Error Handling
+- Returns original image if lock cannot be acquired
+- Logs errors via `LoggerInterface`
+- Throws `NotFoundException` for missing images
+- Throws `SecurityException` for invalid signatures
+
+## Testing Considerations
+
+### Lock Manager
+- Can be null (graceful degradation)
+- Uses Redis cache backend
+- TTL in seconds (not milliseconds)
+
+### Image Resize Service
+- Double-checks cache after Gemini processing
+- Handles temporary Gemini files
+- Normalizes parameters before processing
+
+## Composer Configuration
+
+### Package Name
+- `genaker/imageaibundle`
+- Type: `magento2-module`
+
+### Dependencies
+- `magento/framework: >=102.0.0`
+- `google/generative-ai-php: ^0.3.0|^0.4.0`
+
+### Autoload
+- PSR-4: `Genaker\ImageAIBundle\` → `app/code/Genaker/ImageAIBundle/`
+- Files: `app/code/Genaker/ImageAIBundle/registration.php`
+
+## Important Notes
+
+1. **Lock TTL**: 3 seconds (short to prevent deadlocks)
+2. **Cache Check**: Always check cache BEFORE expensive operations (Gemini API)
+3. **Double-Check Pattern**: Used in lock acquisition for atomicity
+4. **Base64 URLs**: Preferred format for Nginx cache optimization
+5. **Signature Validation**: Required for prompt parameter (security)
+6. **Admin Access**: Allows prompts without signature if admin logged in
+
+## Related OroCommerce Module
+- Original module: `src/Hammer/Bundle/ImageResizeBundle`
+- Similar architecture but adapted for Magento 2 conventions
+- Uses Symfony LockFactory vs Magento LockManager
+- Uses Gaufrette filesystem vs Magento Filesystem
+
+## Git Repository
+- Repository: `https://github.com/Genaker/ImageResizeAI`
+- Branch: `main`
+- Module path: `app/code/Genaker/ImageAIBundle/`
+
