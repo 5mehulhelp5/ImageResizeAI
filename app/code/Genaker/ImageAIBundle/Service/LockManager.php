@@ -30,14 +30,14 @@ class LockManager
      * @param FrontendPool|null $cachePool Cache pool to get Redis cache frontend
      * @param ScopeConfigInterface|null $scopeConfig Scope config for retry count
      * @param int $defaultRetryCount Default number of retry attempts (default: 3)
-     * @param float $defaultTtl Default lock TTL in seconds (default: 30.0 seconds)
+     * @param float $defaultTtl Default lock TTL in seconds (default: 3.0 seconds)
      * @param string $lockPrefix Prefix for lock keys in Redis
      */
     public function __construct(
         FrontendPool $cachePool = null,
         ScopeConfigInterface $scopeConfig = null,
         int $defaultRetryCount = 3,
-        float $defaultTtl = 30.0, // TTL in seconds
+        float $defaultTtl = 3.0, // TTL in seconds
         string $lockPrefix = 'IMAGE_RESIZE_LOCK_'
     ) {
         // Use default cache frontend (which should be Redis if configured)
@@ -181,7 +181,7 @@ class LockManager
     /**
      * Get TTL from configuration
      *
-     * @return float TTL in seconds (default: 30.0 seconds)
+     * @return float TTL in seconds (default: 3.0 seconds)
      */
     private function getTtl(): float
     {
