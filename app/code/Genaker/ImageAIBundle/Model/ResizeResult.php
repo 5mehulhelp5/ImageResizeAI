@@ -8,7 +8,7 @@
  * @copyright   Copyright (c) 2024 Genaker
  */
 
-namespace Genaker\ImageBundle\Model;
+namespace Genaker\ImageAIBundle\Model;
 
 /**
  * Resize Result Model

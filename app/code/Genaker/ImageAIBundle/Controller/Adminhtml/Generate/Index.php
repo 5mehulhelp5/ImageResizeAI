@@ -8,9 +8,9 @@
  * @copyright   Copyright (c) 2024 Genaker
  */
 
-namespace Genaker\ImageBundle\Controller\Adminhtml\Generate;
+namespace Genaker\ImageAIBundle\Controller\Adminhtml\Generate;
 
-use Genaker\ImageBundle\Api\ImageResizeServiceInterface;
+use Genaker\ImageAIBundle\Api\ImageResizeServiceInterface;
 use Magento\Backend\App\Action;
 use Magento\Backend\App\Action\Context;
 use Magento\Framework\Controller\Result\Json;
@@ -22,7 +22,7 @@ use Psr\Log\LoggerInterface;
  */
 class Index extends Action
 {
-    const ADMIN_RESOURCE = 'Genaker_ImageBundle::config';
+    const ADMIN_RESOURCE = 'Genaker_ImageAIBundle::config';
 
     private ImageResizeServiceInterface $imageResizeService;
     private LoggerInterface $logger;

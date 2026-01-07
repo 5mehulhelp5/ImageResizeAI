@@ -1,9 +1,9 @@
 <?php
 /**
- * Genaker ImageBundle
+ * Genaker ImageAIBundle
  *
  * @category    Genaker
- * @package     Genaker_ImageBundle
+ * @package     Genaker_ImageAIBundle
  * @author      Genaker
  * @copyright   Copyright (c) 2024 Genaker
  */
@@ -12,7 +12,7 @@ use Magento\Framework\Component\ComponentRegistrar;
 
 ComponentRegistrar::register(
     ComponentRegistrar::MODULE,
-    'Genaker_ImageBundle',
+    'Genaker_ImageAIBundle',
     __DIR__
 );
 

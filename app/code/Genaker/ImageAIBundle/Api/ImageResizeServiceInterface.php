@@ -8,7 +8,7 @@
  * @copyright   Copyright (c) 2024 Genaker
  */
 
-namespace Genaker\ImageBundle\Api;
+namespace Genaker\ImageAIBundle\Api;
 
 /**
  * Image Resize Service Interface
@@ -21,7 +21,7 @@ interface ImageResizeServiceInterface
      * @param string $imagePath Image path to resize
      * @param array $params Resize parameters (w, h, q, a, f, prompt, trim, etc.)
      * @param bool $allowPrompt Whether to allow prompt parameter
-     * @return \Genaker\ImageBundle\Model\ResizeResult
+     * @return \Genaker\ImageAIBundle\Model\ResizeResult
      * @throws \InvalidArgumentException
      * @throws \RuntimeException
      */

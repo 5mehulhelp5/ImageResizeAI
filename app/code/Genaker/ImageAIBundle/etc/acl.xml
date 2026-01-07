@@ -16,7 +16,7 @@
                 <resource id="Magento_Backend::stores">
                     <resource id="Magento_Backend::stores_settings">
                         <resource id="Magento_Config::config">
-                            <resource id="Genaker_ImageBundle::config" title="Image Resize Configuration" sortOrder="50"/>
+                            <resource id="Genaker_ImageAIBundle::config" title="Image AI Resize Configuration" sortOrder="50"/>
                         </resource>
                     </resource>
                 </resource>

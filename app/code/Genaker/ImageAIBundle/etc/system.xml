@@ -14,10 +14,10 @@
         <tab id="genaker" translate="label" sortOrder="200">
             <label>Genaker</label>
         </tab>
-        <section id="genaker_imagebundle" translate="label" type="text" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="1">
-            <label>Image Resize</label>
+        <section id="genaker_imageaibundle" translate="label" type="text" sortOrder="100" showInDefault="1" showInWebsite="1" showInStore="1">
+            <label>Image AI Resize</label>
             <tab>genaker</tab>
-            <resource>Genaker_ImageBundle::config</resource>
+            <resource>Genaker_ImageAIBundle::config</resource>
             <group id="general" translate="label" type="text" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">
                 <label>General Settings</label>
                 <field id="signature_enabled" translate="label comment" type="select" sortOrder="10" showInDefault="1" showInWebsite="1" showInStore="1">

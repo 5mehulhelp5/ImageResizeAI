@@ -8,10 +8,10 @@
  * @copyright   Copyright (c) 2024 Genaker
  */
 
-namespace Genaker\ImageBundle\Service;
+namespace Genaker\ImageAIBundle\Service;
 
-use Genaker\ImageBundle\Api\ImageResizeServiceInterface;
-use Genaker\ImageBundle\Model\ResizeResult;
+use Genaker\ImageAIBundle\Api\ImageResizeServiceInterface;
+use Genaker\ImageAIBundle\Model\ResizeResult;
 use Magento\Framework\App\Config\ScopeConfigInterface;
 use Magento\Framework\Filesystem\Driver\File;
 use Magento\Framework\Image\AdapterFactory;

@@ -11,7 +11,7 @@
 -->
 <config xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="urn:magento:module:Magento_Store:etc/config.xsd">
     <default>
-        <genaker_imagebundle>
+        <genaker_imageaibundle>
             <general>
                 <signature_enabled>0</signature_enabled>
                 <signature_salt></signature_salt>
@@ -36,7 +36,7 @@
             </limits>
             <allowed_aspect_values>inset,outbound</allowed_aspect_values>
             <allowed_format_values>webp,jpg,jpeg,png,gif</allowed_format_values>
-        </genaker_imagebundle>
+        </genaker_imageaibundle>
     </default>
 </config>
 

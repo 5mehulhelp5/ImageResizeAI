@@ -8,9 +8,9 @@
  * @copyright   Copyright (c) 2024 Genaker
  */
 
-namespace Genaker\ImageBundle\Controller\Resize;
+namespace Genaker\ImageAIBundle\Controller\Resize;
 
-use Genaker\ImageBundle\Api\ImageResizeServiceInterface;
+use Genaker\ImageAIBundle\Api\ImageResizeServiceInterface;
 use Magento\Framework\App\Action\Action;
 use Magento\Framework\App\Action\Context;
 use Magento\Framework\App\Config\ScopeConfigInterface;
@@ -102,7 +102,7 @@ class Index extends Action
     private function isSignatureEnabled(): bool
     {
         return (bool)$this->scopeConfig->getValue(
-            'genaker_imagebundle/general/signature_enabled',
+            'genaker_imageaibundle/general/signature_enabled',
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
         );
     }
@@ -123,7 +123,7 @@ class Index extends Action
         }
 
         $salt = $this->scopeConfig->getValue(
-            'genaker_imagebundle/general/signature_salt',
+            'genaker_imageaibundle/general/signature_salt',
             \Magento\Store\Model\ScopeInterface::SCOPE_STORE
         );
 
