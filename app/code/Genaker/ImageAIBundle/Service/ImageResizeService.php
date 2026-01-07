@@ -169,13 +169,13 @@ class ImageResizeService implements ImageResizeServiceInterface
     private function getConfig(): array
     {
         return [
-            'width_min' => (int)$this->scopeConfig->getValue('genaker_imagebundle/limits/width/min'),
-            'width_max' => (int)$this->scopeConfig->getValue('genaker_imagebundle/limits/width/max'),
-            'height_min' => (int)$this->scopeConfig->getValue('genaker_imagebundle/limits/height/min'),
-            'height_max' => (int)$this->scopeConfig->getValue('genaker_imagebundle/limits/height/max'),
-            'quality_min' => (int)$this->scopeConfig->getValue('genaker_imagebundle/limits/quality/min'),
-            'quality_max' => (int)$this->scopeConfig->getValue('genaker_imagebundle/limits/quality/max'),
-            'allowed_format_values' => $this->scopeConfig->getValue('genaker_imagebundle/allowed_format_values') ?: 'webp,jpg,jpeg,png,gif',
+            'width_min' => (int)$this->scopeConfig->getValue('genaker_imageaibundle/limits/width/min'),
+            'width_max' => (int)$this->scopeConfig->getValue('genaker_imageaibundle/limits/width/max'),
+            'height_min' => (int)$this->scopeConfig->getValue('genaker_imageaibundle/limits/height/min'),
+            'height_max' => (int)$this->scopeConfig->getValue('genaker_imageaibundle/limits/height/max'),
+            'quality_min' => (int)$this->scopeConfig->getValue('genaker_imageaibundle/limits/quality/min'),
+            'quality_max' => (int)$this->scopeConfig->getValue('genaker_imageaibundle/limits/quality/max'),
+            'allowed_format_values' => $this->scopeConfig->getValue('genaker_imageaibundle/allowed_format_values') ?: 'webp,jpg,jpeg,png,gif',
         ];
     }
 
