@@ -38,10 +38,10 @@
         </arguments>
     </type>
     
-    <!-- Lock Manager Service -->
+    <!-- Lock Manager Service - Uses Redis Cache -->
     <type name="Genaker\ImageAIBundle\Service\LockManager">
         <arguments>
-            <argument name="lockManager" xsi:type="object">Magento\Framework\Lock\LockManagerInterface</argument>
+            <argument name="cachePool" xsi:type="object">Magento\Framework\App\Cache\Type\FrontendPool</argument>
             <argument name="scopeConfig" xsi:type="object">Magento\Framework\App\Config\ScopeConfigInterface</argument>
         </arguments>
     </type>

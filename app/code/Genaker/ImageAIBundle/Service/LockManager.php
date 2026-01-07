@@ -11,44 +11,59 @@
 namespace Genaker\ImageAIBundle\Service;
 
 use Magento\Framework\App\Config\ScopeConfigInterface;
-use Magento\Framework\Lock\LockManagerInterface;
+use Magento\Framework\Cache\FrontendInterface;
+use Magento\Framework\App\Cache\Type\FrontendPool;
 
 /**
  * Lock Manager Service
- * Wraps Magento's LockManager for image resize operations
+ * Uses Redis cache for distributed locking across image resize operations
  */
 class LockManager
 {
-    private ?LockManagerInterface $lockManager;
+    private ?FrontendInterface $cache;
     private ScopeConfigInterface $scopeConfig;
     private int $defaultRetryCount;
     private float $defaultTtl;
+    private string $lockPrefix;
 
     public function __construct(
-        LockManagerInterface $lockManager = null,
+        FrontendPool $cachePool = null,
         ScopeConfigInterface $scopeConfig = null,
         int $defaultRetryCount = 3,
-        float $defaultTtl = 30.0
+        float $defaultTtl = 30.0,
+        string $lockPrefix = 'IMAGE_RESIZE_LOCK_'
     ) {
-        $this->lockManager = $lockManager;
+        // Use default cache frontend (which should be Redis if configured)
+        $this->cache = $cachePool ? $cachePool->get('default') : null;
+        if (!$this->cache) {
+            // Fallback: try to get cache from object manager
+            $objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+            try {
+                $this->cache = $objectManager->get(FrontendPool::class)->get('default');
+            } catch (\Exception $e) {
+                $this->cache = null;
+            }
+        }
+        
         $this->scopeConfig = $scopeConfig ?? \Magento\Framework\App\ObjectManager::getInstance()
             ->get(ScopeConfigInterface::class);
         $this->defaultRetryCount = $defaultRetryCount;
         $this->defaultTtl = $defaultTtl;
+        $this->lockPrefix = $lockPrefix;
     }
 
     /**
-     * Check if lock manager is available
+     * Check if Redis cache is available for locking
      *
      * @return bool
      */
     public function isAvailable(): bool
     {
-        return $this->lockManager !== null;
+        return $this->cache !== null;
     }
 
     /**
-     * Acquire lock for image resize operation
+     * Acquire lock for image resize operation using Redis cache
      *
      * @param string $imagePath Image path
      * @param array $params Resize parameters
@@ -62,12 +77,26 @@ class LockManager
 
         $lockKey = $this->generateLockKey($imagePath, $params);
         $retryCount = $this->getRetryCount();
-        $ttl = $this->getTtl();
+        $ttl = (int)$this->getTtl();
+        $lockValue = $this->generateLockValue();
+        $cacheKey = $this->lockPrefix . $lockKey;
 
         // Try to acquire lock with retries
         for ($i = 0; $i < $retryCount; $i++) {
-            if ($this->lockManager->lock($lockKey, $ttl)) {
-                return true;
+            // Try to set lock in Redis cache with TTL
+            // If key doesn't exist, we acquire the lock
+            $existingLock = $this->cache->load($cacheKey);
+            
+            if ($existingLock === false) {
+                // Lock doesn't exist, try to acquire it
+                // Use save() with tags and lifetime to set TTL
+                $this->cache->save($lockValue, $cacheKey, [], $ttl);
+                
+                // Verify we got the lock (double-check pattern)
+                $verifyLock = $this->cache->load($cacheKey);
+                if ($verifyLock === $lockValue) {
+                    return true;
+                }
             }
             
             // Wait before retry (except on last attempt)
@@ -93,7 +122,20 @@ class LockManager
         }
 
         $lockKey = $this->generateLockKey($imagePath, $params);
-        $this->lockManager->unlock($lockKey);
+        $cacheKey = $this->lockPrefix . $lockKey;
+        
+        // Remove lock from Redis cache
+        $this->cache->remove($cacheKey);
+    }
+
+    /**
+     * Generate unique lock value (process ID + timestamp)
+     *
+     * @return string
+     */
+    private function generateLockValue(): string
+    {
+        return getmypid() . '_' . microtime(true);
     }
 
     /**
