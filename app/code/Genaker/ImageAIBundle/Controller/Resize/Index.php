@@ -209,26 +209,35 @@ class Index extends Action
                 throw new NotFoundException(__($errorMsg));
             }
 
-            // Validate signature/prompt access (same logic as image)
-            $allowPrompt = false;
+            // Validate signature for video generation
+            // If signature validation is enabled, signature is REQUIRED (no admin bypass)
+            $allowVideoGeneration = false;
             try {
                 if ($this->isSignatureEnabled()) {
+                    // Signature validation enabled - signature is REQUIRED
                     $params = ['prompt' => $prompt];
                     $this->validateSignature($imagePath, $params);
-                    $allowPrompt = true;
+                    $allowVideoGeneration = true; // Signature validated
                 } else {
-                    $allowPrompt = true; // Signature disabled = allow prompts
+                    // Signature validation disabled - allow video generation
+                    $allowVideoGeneration = true;
                 }
             } catch (\Exception $e) {
-                if (!$this->isSignatureEnabled()) {
-                    $allowPrompt = true;
+                // If signature validation is enabled and validation failed, deny access
+                if ($this->isSignatureEnabled()) {
+                    $this->logger->warning('Video generation denied: signature validation failed', [
+                        'imagePath' => $imagePath,
+                        'error' => $e->getMessage()
+                    ]);
+                    throw new NotFoundException(__('Video generation requires valid signature. Signature validation is enabled.'));
                 } else {
-                    $allowPrompt = $this->isAdmin();
+                    // Signature validation disabled - allow
+                    $allowVideoGeneration = true;
                 }
             }
 
-            if (!$allowPrompt) {
-                throw new NotFoundException(__('Video generation requires admin login or signature validation'));
+            if (!$allowVideoGeneration) {
+                throw new NotFoundException(__('Video generation is not allowed'));
             }
 
             // Resolve source image path
