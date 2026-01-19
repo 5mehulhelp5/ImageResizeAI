@@ -91,57 +91,230 @@ Navigate to **Stores > Configuration > Genaker > Image AI Resize** to configure:
 /resize/ip/{image_path}?w={width}&h={height}&f={format}&sig={signature}
 ```
 
+### URL Format Options: Base64 vs Regular
+
+The module supports two URL formats for image resizing, both optimized for nginx caching:
+
+#### Regular URL Format (Query String)
+
+**Format:**
+```
+/media/resize/ip/{image_path}?w={width}&h={height}&f={format}&q={quality}
+```
+
+**Example:**
+```
+https://your-domain.com/media/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=400&h=400&f=jpeg
+```
+
+**Characteristics:**
+- Human-readable and easy to construct
+- Parameters visible in URL
+- Works with default nginx configuration
+- Cache files stored as: `/pub/media/resize/{base64-encoded-params}.{extension}`
+
+#### Base64 URL Format (Recommended for Production)
+
+**Format:**
+```
+/media/resize/{base64-encoded-string}.{extension}
+```
+
+**Example:**
+```
+https://your-domain.com/media/resize/aXAvY2F0YWxvZy9wcm9kdWN0L3cvdC93dDA5LXdoaXRlX21haW5fMS5qcGc_Zj1qcGVnJmg9NDAwJnc9NDAw.jpeg
+```
+
+**How it works:**
+- Base64 string encodes: `ip/{image_path}?{sorted_params}`
+- Parameters are automatically sorted alphabetically for consistent caching
+- Extension matches the output format (jpeg, webp, png, etc.)
+
+**Benefits:**
+- **Nginx-friendly**: Cache files stored directly in `/pub/media/resize/` directory
+- **No PHP required**: Nginx can serve cached files directly without hitting PHP
+- **Consistent caching**: Same parameters always generate the same cache file
+- **Cleaner URLs**: Shorter, more SEO-friendly URLs
+- **Performance**: Faster cache lookups
+
+**Decoding Example:**
+The base64 string `aXAvY2F0YWxvZy9wcm9kdWN0L3cvdC93dDA5LXdoaXRlX21haW5fMS5qcGc_Zj1qcGVnJmg9NDAwJnc9NDAw` decodes to:
+```
+ip/catalog/product/w/t/wt09-white_main_1.jpg?f=jpeg&h=400&w=400
+```
+
+**Both formats use the same cache:**
+- Regular URL: `/media/resize/ip/catalog/product/image.jpg?w=400&h=400&f=jpeg`
+- Base64 URL: `/media/resize/{base64}.jpeg`
+- Both generate the same cache file, ensuring optimal cache utilization
+
+### Nginx Configuration
+
+The module is designed to work with **default nginx configuration** without requiring custom rules. Here's how it works:
+
+#### Default Nginx Behavior
+
+With standard Magento nginx configuration, requests to `/media/resize/` are handled as follows:
+
+1. **Cache Hit**: If the cache file exists at `/pub/media/resize/{base64}.{ext}`, nginx serves it directly (no PHP)
+2. **Cache Miss**: If the file doesn't exist, nginx falls back to `/get.php` which routes to PHP
+3. **PHP Processing**: PHP generates the resized image and saves it to the cache path
+4. **Subsequent Requests**: Future requests are served directly by nginx from cache
+
+#### Cache Path Structure
+
+Cache files are stored using base64-encoded filenames:
+```
+/pub/media/resize/{base64-encoded-params}.{extension}
+```
+
+**Example cache file:**
+```
+/pub/media/resize/aXAvY2F0YWxvZy9wcm9kdWN0L3cvdC93dDA5LXdoaXRlX21haW5fMS5qcGc_Zj1qcGVnJmg9NDAwJnc9NDAw.jpeg
+```
+
+**Why base64 encoding?**
+- Ensures cache files are stored as single files (not directories)
+- Prevents nginx from treating cache paths as directories (which would cause 301/403 errors)
+- Works seamlessly with nginx's `try_files $uri $uri/ /get.php` directive
+- Parameters are sorted alphabetically for consistent cache generation
+
+#### Nginx Configuration (No Changes Required)
+
+The module works with Magento's default nginx configuration. The standard `try_files` directive handles everything:
+
+```nginx
+location ~* \.(jpg|jpeg|png|gif|webp)$ {
+    try_files $uri $uri/ /get.php$is_args$args;
+}
+```
+
+**How it works:**
+1. First, nginx checks if `$uri` exists (cache file)
+2. If not found, checks if `$uri/` is a directory (shouldn't match due to base64 format)
+3. Finally, falls back to `/get.php` which routes to PHP via the Media plugin
+
+#### Cache File Permissions
+
+Ensure nginx has write access to the cache directory:
+```bash
+chmod -R 775 /var/www/html/pub/media/resize/
+chown -R www-data:www-data /var/www/html/pub/media/resize/
+```
+
+#### Performance Benefits
+
+- **Direct Serving**: Cached images served directly by nginx (no PHP overhead)
+- **Consistent Caching**: Both URL formats generate identical cache files
+- **Automatic Cleanup**: Cache files can be managed via Magento cache management
+- **CDN Compatible**: Cache files can be easily cached by CDN services
+
 ### Manual Browser Testing
 
 You can test the image resize functionality directly in your browser by constructing URLs with the appropriate parameters.
 
 #### URL Structure
 
-The base URL format (short format - recommended):
+The module supports two URL formats:
+
+**1. Regular URL Format (Query String):**
 ```
-https://your-domain.com/resize/ip/{image_path}?{parameters}
+https://your-domain.com/media/resize/ip/{image_path}?w={width}&h={height}&f={format}
 ```
 
-Legacy format (still supported for backward compatibility):
+**2. Base64 URL Format (Recommended for Production):**
+```
+https://your-domain.com/media/resize/{base64-encoded-string}.{extension}
+```
+
+**Legacy format (still supported for backward compatibility):**
 ```
 https://your-domain.com/resize/index/imagePath/{image_path}?{parameters}
 ```
 
-**Note:** The short format (`/resize/ip/...`) is recommended as it's cleaner and shorter. The legacy format (`/resize/index/imagePath/...`) is still supported for backward compatibility.
+**Note:** 
+- The regular format (`/media/resize/ip/...`) is human-readable and easy to construct
+- The base64 format (`/media/resize/{base64}.{ext}`) is optimized for nginx caching and production use
+- Both formats generate the same cache file and return identical results
+- The legacy format (`/resize/index/imagePath/...`) is still supported for backward compatibility
 
 #### Constructing Test URLs
 
 **1. Basic Image Resize (Width & Height)**
 
-Using the test image included with the module (short format):
+Using the test image included with the module:
+
+**Regular URL format:**
 ```
-https://your-domain.com/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=300&h=300&f=jpeg
+https://your-domain.com/media/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=300&h=300&f=jpeg
+```
+
+**Base64 URL format (same result, better caching):**
+```
+https://your-domain.com/media/resize/aXAvY2F0YWxvZy9wcm9kdWN0L3cvdC93dDA5LXdoaXRlX21haW5fMS5qcGc_Zj1qcGVnJmg9MzAwJnc9MzAw.jpeg
 ```
 
 **2. Resize with Quality Control**
+
+**Regular URL format:**
 ```
-https://your-domain.com/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=500&h=500&f=webp&q=90
+https://your-domain.com/media/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=500&h=500&f=webp&q=90
+```
+
+**Base64 URL format:**
+```
+https://your-domain.com/media/resize/aXAvY2F0YWxvZy9wcm9kdWN0L3cvdC93dDA5LXdoaXRlX21haW5fMS5qcGc_Zj13ZWJwJmg9NTAwJnE9OTAmdz01MDA.webp
 ```
 
 **3. Width Only (Height auto-scales)**
+
+**Regular URL format:**
 ```
-https://your-domain.com/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=400&f=jpeg
+https://your-domain.com/media/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=400&f=jpeg
+```
+
+**Base64 URL format:**
+```
+https://your-domain.com/media/resize/aXAvY2F0YWxvZy9wcm9kdWN0L3cvdC93dDA5LXdoaXRlX21haW5fMS5qcGc_Zj1qcGVnJnc9NDAw.jpeg
 ```
 
 **4. Height Only (Width auto-scales)**
+
+**Regular URL format:**
 ```
-https://your-domain.com/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?h=400&f=jpeg
+https://your-domain.com/media/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?h=400&f=jpeg
+```
+
+**Base64 URL format:**
+```
+https://your-domain.com/media/resize/aXAvY2F0YWxvZy9wcm9kdWN0L3cvdC93dDA5LXdoaXRlX21haW5fMS5qcGc_Zj1qcGVnJmg9NDAw.jpeg
 ```
 
 **5. Format Conversion (JPEG to WebP)**
+
+**Regular URL format:**
 ```
-https://your-domain.com/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=300&h=300&f=webp&q=85
+https://your-domain.com/media/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=300&h=300&f=webp&q=85
+```
+
+**Base64 URL format:**
+```
+https://your-domain.com/media/resize/aXAvY2F0YWxvZy9wcm9kdWN0L3cvdC93dDA5LXdoaXRlX21haW5fMS5qcGc_Zj13ZWJwJmg9MzAwJnE9ODUmdz0zMDA.webp
 ```
 
 **6. Format Conversion (JPEG to PNG)**
+
+**Regular URL format:**
 ```
-https://your-domain.com/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=300&h=300&f=png&q=90
+https://your-domain.com/media/resize/ip/catalog/product/w/t/wt09-white_main_1.jpg?w=300&h=300&f=png&q=90
 ```
+
+**Base64 URL format:**
+```
+https://your-domain.com/media/resize/aXAvY2F0YWxvZy9wcm9kdWN0L3cvdC93dDA5LXdoaXRlX21haW5fMS5qcGc_Zj1wbmcmaD0zMDAmaz05MCZ3PTMwMA.png
+```
+
+**Note:** Both URL formats generate the same cache file and return identical results. Use base64 format for production (better nginx caching) and regular format for development/testing (easier to read and construct).
 
 **7. With Signature (if signature validation is enabled)**
 ```
@@ -234,7 +407,54 @@ Result: WebP format with max width 800px, auto height
 
 \* Required only if signature validation is enabled
 
-## Video Generation Examples
+## Video Generation
+
+### Video Model Selection (Environment Variables)
+
+The module supports two video generation models that can be selected via environment variables:
+
+#### Default: Veo 3.1 (Google AI Studio)
+- **Model**: `veo-3.1-generate-preview`
+- **Endpoint**: `https://generativelanguage.googleapis.com/v1beta`
+- **Use Case**: Production video generation with high quality
+- **Default**: Used when no environment variable is set
+
+#### Alternative: Imagen (Vertex AI) - For Testing
+- **Model**: `imagegeneration@006` (or latest version)
+- **Endpoint**: Vertex AI endpoint (configurable)
+- **Use Case**: Faster generation, higher quotas, good for testing
+- **Activation**: Set `VIDEO_MODEL=imagen` environment variable
+
+**Environment Variables:**
+
+```bash
+# Use Imagen model for testing (faster, higher quotas)
+export VIDEO_MODEL=imagen
+
+# Or use alternative env var name
+export GEMINI_VIDEO_MODEL=imagen
+
+# Required for Imagen: Set Vertex AI endpoint
+# Format: https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/publishers/google/models/imagegeneration@006
+export VERTEX_AI_ENDPOINT=https://us-central1-aiplatform.googleapis.com/v1/projects/your-project/locations/us-central1/publishers/google/models/imagegeneration@006
+
+# Optional: Vertex AI access token (if using Bearer auth instead of API key)
+export VERTEX_AI_ACCESS_TOKEN=your_access_token
+```
+
+**Model Comparison:**
+
+| Feature | Veo 3.1 | Imagen |
+|---------|---------|--------|
+| Quality | High | Good |
+| Speed | Slower | Faster |
+| Quotas | Standard | Higher |
+| Use Case | Production | Testing |
+| Endpoint | Google AI Studio | Vertex AI |
+
+**Note:** When `VIDEO_MODEL=imagen` is set but `VERTEX_AI_ENDPOINT` is not configured, the module will fall back to Veo 3.1 and log a warning.
+
+### Video Generation Examples
 
 Video generation uses the same URL structure as image resizing, but with the `video=true` parameter. The endpoint returns JSON responses instead of image files.
 
@@ -680,12 +900,243 @@ Where:
 - `$sortedParams` is URL-encoded query string of sorted parameters
 - `$salt` is the configured signature salt
 
+## Programmatic URL Generation
+
+The module provides multiple ways to generate image resize URLs programmatically:
+
+### 1. Using ResizeUrlGenerationService (Recommended)
+
+The `ResizeUrlGenerationService` is the core service for generating resize URLs. It's registered in Magento's dependency injection container and can be injected into any class.
+
+**In PHP Classes (Blocks, Controllers, etc.):**
+
+```php
+<?php
+namespace YourVendor\YourModule\Block;
+
+use Genaker\ImageAIBundle\Service\ResizeUrlGenerationService;
+use Magento\Framework\View\Element\Template;
+
+class YourBlock extends Template
+{
+    private ResizeUrlGenerationService $resizeUrlService;
+
+    public function __construct(
+        Template\Context $context,
+        ResizeUrlGenerationService $resizeUrlService,
+        array $data = []
+    ) {
+        parent::__construct($context, $data);
+        $this->resizeUrlService = $resizeUrlService;
+    }
+
+    public function getResizedImageUrl(): string
+    {
+        $imagePath = 'catalog/product/image.jpg';
+        $params = ['w' => 400, 'h' => 400, 'f' => 'jpeg', 'q' => 85];
+        
+        // Generate base64 URL (default, optimized for nginx)
+        return $this->resizeUrlService->generateUrl($imagePath, $params, true);
+        
+        // Or generate regular URL
+        // return $this->resizeUrlService->generateUrl($imagePath, $params, false);
+    }
+}
+```
+
+**Service Methods:**
+- `generateUrl($imagePath, $params = [], $useBase64 = true, $includeDomain = true)` - Main method, base64 by default
+- `generateBase64Url($imagePath, $params = [], $includeDomain = true)` - Always generates base64 format
+- `generateRegularUrl($imagePath, $params = [], $includeDomain = true)` - Always generates regular format
+
+### 2. Using Helper Class (Global Access)
+
+The `ImageResizeUrl` helper provides global access to URL generation functionality.
+
+**In Templates (.phtml files):**
+
+```php
+<?php
+/** @var \Genaker\ImageAIBundle\Helper\ImageResizeUrl $helper */
+$helper = $this->helper(\Genaker\ImageAIBundle\Helper\ImageResizeUrl::class);
+
+// Generate base64 URL (default)
+$resizeUrl = $helper->getResizeUrl('catalog/product/image.jpg', ['w' => 400, 'h' => 400]);
+
+// Generate regular URL
+$regularUrl = $helper->getRegularUrl('catalog/product/image.jpg', ['w' => 400, 'h' => 400]);
+
+// Generate base64 URL explicitly
+$base64Url = $helper->getBase64Url('catalog/product/image.jpg', ['w' => 400, 'h' => 400]);
+?>
+
+<img src="<?= $escaper->escapeUrl($resizeUrl) ?>" alt="Product Image" />
+```
+
+**In PHP Classes:**
+
+```php
+<?php
+use Genaker\ImageAIBundle\Helper\ImageResizeUrl;
+
+class YourClass
+{
+    private ImageResizeUrl $resizeUrlHelper;
+
+    public function __construct(ImageResizeUrl $resizeUrlHelper)
+    {
+        $this->resizeUrlHelper = $resizeUrlHelper;
+    }
+
+    public function getImageUrl(): string
+    {
+        return $this->resizeUrlHelper->getResizeUrl('catalog/product/image.jpg', ['w' => 300]);
+    }
+}
+```
+
+### 3. Using ViewModel (Recommended for Templates)
+
+ViewModels provide a clean way to access URL generation in templates without using helpers or blocks.
+
+**Step 1: Add ViewModel to Block**
+
+In your module's layout XML file (e.g., `view/frontend/layout/catalog_product_view.xml`):
+
+```xml
+<?xml version="1.0"?>
+<page xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" 
+      xsi:noNamespaceSchemaLocation="urn:magento:framework:View/Layout/etc/page_configuration.xsd">
+    <body>
+        <referenceBlock name="product.info.media">
+            <arguments>
+                <argument name="resizeUrlViewModel" xsi:type="object">
+                    Genaker\ImageAIBundle\ViewModel\ResizeUrl
+                </argument>
+            </arguments>
+        </referenceBlock>
+    </body>
+</page>
+```
+
+**Step 2: Use in Template**
+
+In your template file (e.g., `view/frontend/templates/product/view/gallery.phtml`):
+
+```php
+<?php
+/** @var \Genaker\ImageAIBundle\ViewModel\ResizeUrl $resizeUrlViewModel */
+$resizeUrlViewModel = $block->getData('resizeUrlViewModel');
+
+// Generate base64 URL (default)
+$resizeUrl = $resizeUrlViewModel->getResizeUrl('catalog/product/image.jpg', [
+    'w' => 400,
+    'h' => 400,
+    'f' => 'jpeg',
+    'q' => 85
+]);
+
+// Or use specific methods
+$base64Url = $resizeUrlViewModel->getBase64Url('catalog/product/image.jpg', ['w' => 300]);
+$regularUrl = $resizeUrlViewModel->getRegularUrl('catalog/product/image.jpg', ['w' => 300]);
+?>
+
+<img src="<?= $escaper->escapeUrl($resizeUrl) ?>" 
+     srcset="<?= $escaper->escapeUrl($base64Url) ?> 1x,
+             <?= $escaper->escapeUrl($resizeUrlViewModel->getResizeUrl('catalog/product/image.jpg', ['w' => 800])) ?> 2x"
+     alt="Product Image" />
+```
+
+**Alternative: Inject ViewModel Directly in Block**
+
+You can also inject the ViewModel directly in your Block class:
+
+```php
+<?php
+namespace YourVendor\YourModule\Block;
+
+use Genaker\ImageAIBundle\ViewModel\ResizeUrl;
+use Magento\Framework\View\Element\Template;
+
+class YourBlock extends Template
+{
+    private ResizeUrl $resizeUrlViewModel;
+
+    public function __construct(
+        Template\Context $context,
+        ResizeUrl $resizeUrlViewModel,
+        array $data = []
+    ) {
+        parent::__construct($context, $data);
+        $this->resizeUrlViewModel = $resizeUrlViewModel;
+    }
+
+    public function getResizeUrlViewModel(): ResizeUrl
+    {
+        return $this->resizeUrlViewModel;
+    }
+}
+```
+
+Then in your template:
+
+```php
+<?php
+/** @var \YourVendor\YourModule\Block\YourBlock $block */
+$resizeUrl = $block->getResizeUrlViewModel()->getResizeUrl('catalog/product/image.jpg', ['w' => 400]);
+?>
+```
+
+### URL Generation Examples
+
+**Basic Resize:**
+```php
+$url = $service->generateUrl('catalog/product/image.jpg', ['w' => 400, 'h' => 400]);
+// Returns: https://your-domain.com/media/resize/{base64}.jpeg
+```
+
+**With Quality:**
+```php
+$url = $service->generateUrl('catalog/product/image.jpg', ['w' => 500, 'h' => 500, 'q' => 90]);
+```
+
+**Format Conversion:**
+```php
+$url = $service->generateUrl('catalog/product/image.jpg', ['w' => 300, 'h' => 300, 'f' => 'webp']);
+// Returns: https://your-domain.com/media/resize/{base64}.webp
+```
+
+**Regular URL Format:**
+```php
+$url = $service->generateUrl('catalog/product/image.jpg', ['w' => 400, 'h' => 400], false);
+// Returns: https://your-domain.com/media/resize/ip/catalog/product/image.jpg?w=400&h=400&f=jpeg
+```
+
+**Without Domain (Relative Path):**
+```php
+$url = $service->generateBase64Url('catalog/product/image.jpg', ['w' => 400], false);
+// Returns: /media/resize/{base64}.jpeg
+```
+
+### Service Registry
+
+The `ResizeUrlGenerationService` is registered in Magento's dependency injection container (`etc/di.xml`) and can be accessed globally:
+
+```php
+// Via ObjectManager (not recommended, use dependency injection)
+$objectManager = \Magento\Framework\App\ObjectManager::getInstance();
+$service = $objectManager->get(\Genaker\ImageAIBundle\Service\ResizeUrlGenerationService::class);
+```
+
+**Note:** Always prefer dependency injection over ObjectManager for better testability and performance.
+
 ## Performance
 
 - **Caching**: All resized images are cached to disk for fast subsequent requests
 - **Lazy Processing**: Images are only processed when requested
 - **Optimized Formats**: WebP support for smaller file sizes
 - **Lock Mechanism**: Prevents race conditions during concurrent requests
+- **Base64 URLs**: Optimized for nginx direct serving (no PHP overhead for cached images)
 
 ## Requirements
 
@@ -693,9 +1144,31 @@ Where:
 - **PHP**: 7.4 or higher
 - **Extensions**: GD or Imagick (for image processing)
 - **Optional**: Google Gemini API key (for AI features)
+  - Set via admin: **Stores > Configuration > Genaker > Image AI Resize > Gemini API Key**
+  - Or environment variable: `GEMINI_API_KEY`
 - **Optional**: Python 3.7+ (for Python video generation implementation)
   - `google-generativeai >= 0.3.0`
   - `requests >= 2.31.0`
+
+### Video Model Configuration (Environment Variables)
+
+**For Veo 3.1 (Default):**
+- No additional configuration needed
+- Uses Google AI Studio API key
+
+**For Imagen (Testing):**
+```bash
+# Enable Imagen model
+export VIDEO_MODEL=imagen
+
+# Set Vertex AI endpoint (required)
+export VERTEX_AI_ENDPOINT=https://{region}-aiplatform.googleapis.com/v1/projects/{project}/locations/{region}/publishers/google/models/imagegeneration@006
+
+# Optional: Vertex AI access token (if using Bearer auth)
+export VERTEX_AI_ACCESS_TOKEN=your_token
+```
+
+**Note:** Imagen is faster and has higher quotas, making it ideal for testing. Veo 3.1 provides higher quality and is recommended for production.
 
 ## How Media App Interceptor Works
 

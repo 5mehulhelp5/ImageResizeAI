@@ -27,6 +27,7 @@ class ImageResizeService implements ImageResizeServiceInterface
     private AdapterFactory $imageFactory;
     private LoggerInterface $logger;
     private ?GeminiImageModificationService $geminiService;
+    private ResizeUrlGenerationService $urlGenerationService;
     private string $mediaPath;
 
     public function __construct(
@@ -34,12 +35,14 @@ class ImageResizeService implements ImageResizeServiceInterface
         File $filesystem,
         AdapterFactory $imageFactory,
         LoggerInterface $logger,
+        ResizeUrlGenerationService $urlGenerationService,
         GeminiImageModificationService $geminiService = null
     ) {
         $this->scopeConfig = $scopeConfig;
         $this->filesystem = $filesystem;
         $this->imageFactory = $imageFactory;
         $this->logger = $logger;
+        $this->urlGenerationService = $urlGenerationService;
         $this->geminiService = $geminiService;
         $this->mediaPath = BP . '/pub/media';
     }
@@ -47,7 +50,7 @@ class ImageResizeService implements ImageResizeServiceInterface
     /**
      * {@inheritdoc}
      */
-    public function resizeImage(string $imagePath, array $params, bool $allowPrompt = false): ResizeResult
+    public function resizeImage(string $imagePath, array $params, bool $allowPrompt = false, ?string $base64String = null): ResizeResult
     {
         // Normalize parameters
         $normalizedParams = $this->normalizeParameters($params);
@@ -56,8 +59,8 @@ class ImageResizeService implements ImageResizeServiceInterface
         $cacheKey = $this->generateCacheKey($imagePath, $normalizedParams);
         $extension = $normalizedParams['f'] ?? 'jpg';
         
-        // Generate cache file path
-        $cacheFilePath = $this->generateCacheFilePath($imagePath, $normalizedParams, $extension);
+        // Generate cache file path (use base64 if provided, otherwise generate it)
+        $cacheFilePath = $this->generateCacheFilePath($imagePath, $normalizedParams, $extension, $base64String);
         
         // Check cache FIRST before doing any expensive operations (like Gemini API calls)
         // Use file_exists() for absolute paths
@@ -336,28 +339,39 @@ class ImageResizeService implements ImageResizeServiceInterface
 
     /**
      * Generate cache file path
+     * Uses ResizeUrlGenerationService to ensure consistent cache path generation
+     * Format: /pub/media/resize/{base64}.{ext}
      *
      * @param string $imagePath
      * @param array $params
      * @param string $extension
-     * @return string
+     * @param string|null $base64String Pre-generated base64 string from URL (if available)
+     * @return string Absolute cache file path
      */
-    private function generateCacheFilePath(string $imagePath, array $params, string $extension): string
+    private function generateCacheFilePath(string $imagePath, array $params, string $extension, ?string $base64String = null): string
     {
-        $sanitizedPath = ltrim($imagePath, '/');
-        $sanitizedPath = str_replace([':', '*', '?', '"', '<', '>', '|'], '_', $sanitizedPath);
-        
-        $filteredParams = array_filter($params, fn($value) => $value !== null);
-        ksort($filteredParams);
-        $paramString = rawurlencode(http_build_query($filteredParams));
-        
-        $cachePath = '/media/cache/resize/' . $sanitizedPath;
-        if (!empty($paramString)) {
-            $cachePath .= '/' . $paramString;
+        // If base64 string provided (from URL), use it directly
+        if ($base64String !== null) {
+            return BP . '/pub/media/resize/' . $base64String . '.' . $extension;
         }
-        $cachePath .= '.' . $extension;
         
-        return BP . '/pub' . $cachePath;
+        // Ensure params include the extension format
+        $paramsWithFormat = $params;
+        if (!isset($paramsWithFormat['f'])) {
+            // Normalize jpg to jpeg
+            $paramsWithFormat['f'] = ($extension === 'jpg') ? 'jpeg' : $extension;
+        }
+        
+        // Use ResizeUrlGenerationService to generate base64 URL (without domain)
+        // This ensures consistency with URL generation
+        $base64Url = $this->urlGenerationService->generateBase64Url($imagePath, $paramsWithFormat, false);
+        
+        // Extract the base64 filename from the path
+        // $base64Url format: /media/resize/{base64}.{extension}
+        // We need: /pub/media/resize/{base64}.{extension}
+        $cachePath = '/pub' . $base64Url;
+        
+        return BP . $cachePath;
     }
 
     /**

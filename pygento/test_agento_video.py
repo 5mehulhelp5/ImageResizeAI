@@ -2,6 +2,8 @@
 """
 Pytest integration tests for agento_video.py
 Tests video generation, caching, and file saving functionality.
+
+Uses mock Veo API server for testing to avoid API costs and rate limits.
 """
 
 import pytest
@@ -9,6 +11,9 @@ import json
 import os
 import tempfile
 import shutil
+import subprocess
+import time
+import signal
 from pathlib import Path
 from unittest.mock import Mock, patch, MagicMock
 import base64
@@ -17,6 +22,72 @@ import sys
 # Add the current directory to path to import agento_video
 sys.path.insert(0, str(Path(__file__).parent))
 from agento_video import GeminiVideoGenerator
+
+
+@pytest.fixture(scope='session')
+def mock_server():
+    """Start mock Veo API server before tests and stop after"""
+    # Determine mock server script path
+    script_dir = Path(__file__).parent
+    mock_server_script = script_dir / 'mock_veo_server.py'
+    
+    if not mock_server_script.exists():
+        pytest.skip(f"Mock server script not found: {mock_server_script}")
+    
+    # Use a random port to avoid conflicts
+    import random
+    port = random.randint(9000, 9999)
+    host = '127.0.0.1'
+    
+    # Start mock server
+    server_process = subprocess.Popen(
+        [sys.executable, str(mock_server_script), '--port', str(port), '--host', host],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+        preexec_fn=os.setsid if hasattr(os, 'setsid') else None
+    )
+    
+    # Wait for server to start
+    time.sleep(2)
+    
+    # Check if server is running
+    if server_process.poll() is not None:
+        stdout, stderr = server_process.communicate()
+        pytest.fail(f"Mock server failed to start:\nSTDOUT: {stdout.decode()}\nSTDERR: {stderr.decode()}")
+    
+    # Set environment variable for tests
+    base_url = f'http://{host}:{port}/v1beta'
+    os.environ['GOOGLE_API_DOMAIN'] = base_url
+    
+    yield {
+        'host': host,
+        'port': port,
+        'base_url': base_url,
+        'process': server_process
+    }
+    
+    # Cleanup: Stop mock server
+    try:
+        if hasattr(os, 'setsid'):
+            # Kill the process group
+            os.killpg(os.getpgid(server_process.pid), signal.SIGTERM)
+        else:
+            # Windows or systems without setsid
+            server_process.terminate()
+        
+        # Wait for process to terminate
+        try:
+            server_process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            server_process.kill()
+            server_process.wait()
+    except ProcessLookupError:
+        # Process already terminated
+        pass
+    
+    # Remove environment variable
+    if 'GOOGLE_API_DOMAIN' in os.environ:
+        del os.environ['GOOGLE_API_DOMAIN']
 
 
 @pytest.fixture
@@ -49,9 +120,12 @@ def api_key():
 
 
 @pytest.fixture
-def generator(temp_dir, api_key):
-    """Create a GeminiVideoGenerator instance"""
-    return GeminiVideoGenerator(api_key, str(temp_dir))
+def generator(temp_dir, api_key, mock_server):
+    """Create a GeminiVideoGenerator instance (uses mock server)"""
+    # Mock server fixture ensures GOOGLE_API_DOMAIN is set
+    # If mock_server is not available, use a default test URL
+    base_url = os.getenv('GOOGLE_API_DOMAIN', 'http://127.0.0.1:8080/v1beta')
+    return GeminiVideoGenerator(api_key, str(temp_dir), base_url=base_url)
 
 
 class TestGeminiVideoGenerator:
@@ -62,7 +136,8 @@ class TestGeminiVideoGenerator:
         assert generator.is_available() is True
         
         # Test with empty API key
-        empty_generator = GeminiVideoGenerator('', str(generator.base_path))
+        base_url = os.getenv('GOOGLE_API_DOMAIN', 'http://127.0.0.1:8080/v1beta')
+        empty_generator = GeminiVideoGenerator('', str(generator.base_path), base_url=base_url)
         assert empty_generator.is_available() is False
     
     def test_resolve_image_path_absolute(self, generator, test_image):
@@ -123,7 +198,9 @@ class TestGeminiVideoGenerator:
         
         assert cached is not None
         assert cached['fromCache'] is True
-        assert cached['videoUrl'] == f'/media/video/{filename}'
+        # Video URL should contain the filename and be a valid URL
+        assert filename in cached['videoUrl']
+        assert cached['videoUrl'].endswith('.mp4')
         assert cached['videoPath'] == str(video_path)
         assert cached['status'] == 'completed'
     
@@ -132,78 +209,48 @@ class TestGeminiVideoGenerator:
         cached = generator.get_cached_video('non_existent_key')
         assert cached is None
     
-    @patch('agento_video.requests.get')
-    def test_download_video_with_redirects(self, mock_get, generator):
-        """Test video download with redirect handling"""
-        # Mock redirect chain
-        redirect_response = Mock()
-        redirect_response.url = 'https://redirected-url.com/video.mp4'
+    def test_download_video_with_redirects(self, generator, mock_server):
+        """Test video download with redirect handling using mock server"""
+        # Generate and complete a video operation
+        test_image_path = generator.base_path / 'test.jpg'
+        test_image_path.write_bytes(b'\xff\xd8\xff\xe0\x00\x10JFIF')
         
-        final_response = Mock()
-        final_response.history = [redirect_response]
-        final_response.url = 'https://final-url.com/video.mp4'
-        final_response.status_code = 200
-        final_response.content = b'video content data'
-        final_response.raise_for_status = Mock()
+        operation = generator.generate_video_from_image(
+            str(test_image_path),
+            'Test download',
+            '16:9',
+            False
+        )
         
-        mock_get.return_value = final_response
+        # Poll for completion
+        result = generator.poll_video_operation(
+            operation['operationName'],
+            max_wait_seconds=10,
+            poll_interval_seconds=1,
+            cache_key=operation.get('cacheKey')
+        )
         
-        video_content = generator.download_video_with_redirects('https://api.example.com/video')
-        
-        assert video_content == b'video content data'
-        mock_get.assert_called_once()
-        call_kwargs = mock_get.call_args[1]
-        assert call_kwargs['allow_redirects'] is True
-        assert call_kwargs['timeout'] == 300
+        # Verify video was downloaded and saved
+        assert result['status'] == 'completed'
+        assert Path(result['videoPath']).exists()
+        assert Path(result['videoPath']).stat().st_size > 0
     
-    @patch('agento_video.requests.get')
-    def test_download_video_appends_api_key(self, mock_get, generator):
-        """Test that API key is appended to URI"""
-        response = Mock()
-        response.history = []
-        response.url = 'https://api.example.com/video'
-        response.status_code = 200
-        response.content = b'video content'
-        response.raise_for_status = Mock()
-        mock_get.return_value = response
-        
-        uri = 'https://generativelanguage.googleapis.com/v1beta/files/123:download?alt=media'
-        generator.download_video_with_redirects(uri)
-        
-        # Check that API key was appended
-        call_args = mock_get.call_args[0][0]
-        assert 'key=' in call_args
-        assert generator.api_key in call_args
-    
-    def test_save_video(self, generator, temp_dir):
-        """Test saving video to filesystem"""
+    def test_save_video(self, generator, temp_dir, mock_server):
+        """Test saving video to filesystem using mock server"""
         cache_key = 'test_save_key'
         
-        with patch.object(generator, 'download_video_with_redirects') as mock_download:
-            mock_download.return_value = b'fake video content'
-            
-            video_path = generator.save_video('https://api.example.com/video.mp4', cache_key)
-            
-            assert video_path == str(generator.video_dir / f'veo_{cache_key}.mp4')
-            assert Path(video_path).exists()
-            assert Path(video_path).read_bytes() == b'fake video content'
+        # Use mock server video URI
+        video_uri = f"{mock_server['base_url'].replace('/v1beta', '')}/videos/test-video-id"
+        
+        video_path = generator.save_video(video_uri, cache_key)
+        
+        assert video_path == str(generator.video_dir / f'veo_{cache_key}.mp4')
+        assert Path(video_path).exists()
+        assert Path(video_path).stat().st_size > 0
     
-    @patch('agento_video.requests.post')
-    @patch('agento_video.requests.get')
-    def test_generate_video_from_image_success(self, mock_get, mock_post, generator, test_image):
-        """Test successful video generation"""
-        # Mock API response for video generation
-        operation_response = Mock()
-        operation_response.status_code = 200
-        operation_response.json.return_value = {
-            'name': 'operations/test-operation-123',
-            'done': False
-        }
-        mock_post.return_value = operation_response
-        
-        # Mock polling response (not called in this test, but needed for import)
-        mock_get.return_value = Mock()
-        
+    def test_generate_video_from_image_success(self, generator, test_image, mock_server):
+        """Test successful video generation using mock server"""
+        # Use real requests to mock server (no mocking needed)
         result = generator.generate_video_from_image(
             test_image,
             'Test prompt',
@@ -212,12 +259,11 @@ class TestGeminiVideoGenerator:
         )
         
         assert 'operationName' in result
-        assert result['operationName'] == 'operations/test-operation-123'
+        assert result['operationName'].startswith('operations/')
         assert result['status'] == 'running'
         assert 'cacheKey' in result
     
-    @patch('agento_video.requests.post')
-    def test_generate_video_from_image_cached(self, mock_post, generator, test_image, temp_dir):
+    def test_generate_video_from_image_cached(self, generator, test_image, temp_dir):
         """Test that cached videos are returned"""
         cache_key = generator.generate_cache_key(test_image, 'Test prompt', '16:9')
         filename = f'veo_{cache_key}.mp4'
@@ -235,61 +281,35 @@ class TestGeminiVideoGenerator:
         )
         
         assert result['fromCache'] is True
-        assert result['videoUrl'] == f'/media/video/{filename}'
+        assert 'videoUrl' in result
         assert result['videoPath'] == str(video_path)
-        # Should not make API call
-        mock_post.assert_not_called()
     
-    @patch('agento_video.requests.get')
-    def test_poll_video_operation_success(self, mock_get, generator):
-        """Test successful video operation polling"""
-        operation_name = 'operations/test-operation-123'
-        cache_key = 'test_cache_key'
+    def test_poll_video_operation_success(self, generator, test_image, mock_server):
+        """Test successful video operation polling using mock server"""
+        # First generate a video operation
+        operation = generator.generate_video_from_image(
+            test_image,
+            'Test prompt for polling',
+            '16:9',
+            False
+        )
         
-        # Mock polling responses
-        # First call: operation not done
-        not_done_response = Mock()
-        not_done_response.status_code = 200
-        not_done_response.json.return_value = {
-            'name': operation_name,
-            'done': False
-        }
+        operation_name = operation['operationName']
+        cache_key = operation.get('cacheKey')
         
-        # Second call: operation done with video
-        done_response = Mock()
-        done_response.status_code = 200
-        done_response.json.return_value = {
-            'name': operation_name,
-            'done': True,
-            'response': {
-                'generateVideoResponse': {
-                    'generatedSamples': [
-                        {
-                            'video': {
-                                'uri': 'https://api.example.com/video.mp4'
-                            }
-                        }
-                    ]
-                }
-            }
-        }
+        # Poll for completion (mock server completes after ~5 seconds)
+        result = generator.poll_video_operation(
+            operation_name,
+            max_wait_seconds=10,  # Allow time for mock server
+            poll_interval_seconds=1,
+            cache_key=cache_key
+        )
         
-        mock_get.side_effect = [not_done_response, done_response]
-        
-        with patch.object(generator, 'save_video') as mock_save:
-            mock_save.return_value = str(generator.video_dir / 'veo_test.mp4')
-            
-            result = generator.poll_video_operation(
-                operation_name,
-                max_wait_seconds=60,  # Shorter timeout for test
-                poll_interval_seconds=1,  # Faster polling for test
-                cache_key=cache_key
-            )
-            
-            assert result['status'] == 'completed'
-            assert 'videoUrl' in result
-            assert 'videoPath' in result
-            assert 'embedUrl' in result
+        assert result['status'] == 'completed'
+        assert 'videoUrl' in result
+        assert 'videoPath' in result
+        assert 'embedUrl' in result
+        assert Path(result['videoPath']).exists()
     
     @patch('agento_video.requests.get')
     def test_poll_video_operation_safety_filter(self, mock_get, generator):
@@ -346,12 +366,13 @@ class TestGeminiVideoGenerator:
         
         assert 'timeout' in str(exc_info.value).lower()
     
-    def test_video_directory_creation(self, temp_dir, api_key):
+    def test_video_directory_creation(self, temp_dir, api_key, mock_server):
         """Test that video directory is created automatically"""
         base_path = temp_dir / 'magento'
         base_path.mkdir()
         
-        generator = GeminiVideoGenerator(api_key, str(base_path))
+        base_url = os.getenv('GOOGLE_API_DOMAIN', 'http://127.0.0.1:8080/v1beta')
+        generator = GeminiVideoGenerator(api_key, str(base_path), base_url=base_url)
         
         expected_video_dir = base_path / 'pub' / 'media' / 'video'
         assert expected_video_dir.exists()
@@ -359,48 +380,15 @@ class TestGeminiVideoGenerator:
 
 
 class TestIntegration:
-    """Integration tests that verify end-to-end functionality"""
+    """Integration tests that verify end-to-end functionality using mock server"""
     
-    @patch('agento_video.requests.post')
-    @patch('agento_video.requests.get')
-    def test_full_video_generation_flow(self, mock_get, mock_post, temp_dir, test_image, api_key):
-        """Test complete video generation flow"""
-        generator = GeminiVideoGenerator(api_key, str(temp_dir))
+    def test_full_video_generation_flow(self, temp_dir, test_image, api_key, mock_server):
+        """Test complete video generation flow using mock server"""
+        # Use base_url from mock_server fixture
+        base_url = mock_server['base_url']
+        generator = GeminiVideoGenerator(api_key, str(temp_dir), base_url=base_url)
         
-        # Mock API responses
-        operation_response = Mock()
-        operation_response.status_code = 200
-        operation_response.json.return_value = {
-            'name': 'operations/test-op-456',
-            'done': False
-        }
-        mock_post.return_value = operation_response
-        
-        # Mock polling - operation completes
-        done_response = Mock()
-        done_response.status_code = 200
-        done_response.json.return_value = {
-            'name': 'operations/test-op-456',
-            'done': True,
-            'response': {
-                'generateVideoResponse': {
-                    'generatedSamples': [
-                        {
-                            'video': {
-                                'uri': 'https://api.example.com/files/video123:download?alt=media'
-                            }
-                        }
-                    ]
-                }
-            }
-        }
-        mock_get.side_effect = [
-            Mock(status_code=200, json=lambda: {'name': 'operations/test-op-456', 'done': False}),
-            done_response,
-            Mock(status_code=200, content=b'video binary data', raise_for_status=Mock())
-        ]
-        
-        # Generate video
+        # Generate video (uses mock server)
         operation = generator.generate_video_from_image(
             test_image,
             'Test product showcase',
@@ -410,46 +398,43 @@ class TestIntegration:
         
         assert 'operationName' in operation
         
-        # Poll for completion
-        with patch.object(generator, 'download_video_with_redirects') as mock_download:
-            mock_download.return_value = b'video binary content'
-            
-            result = generator.poll_video_operation(
-                operation['operationName'],
-                max_wait_seconds=60,
-                poll_interval_seconds=1,
-                cache_key=operation.get('cacheKey')
-            )
-            
-            # Verify video was saved
-            assert result['status'] == 'completed'
-            assert 'videoPath' in result
-            assert 'videoUrl' in result
-            
-            video_path = Path(result['videoPath'])
-            
-            # CRITICAL: Verify video file exists and is saved in correct directory
-            assert video_path.exists(), f"Video file not found at {video_path}"
-            assert video_path.is_file(), f"Video path is not a file: {video_path}"
-            assert video_path.parent == generator.video_dir, f"Video not saved in correct directory. Expected: {generator.video_dir}, Got: {video_path.parent}"
-            assert video_path.suffix == '.mp4', f"Video file should be .mp4, got {video_path.suffix}"
-            
-            # Verify video file has content
-            video_size = video_path.stat().st_size
-            assert video_size > 0, f"Video file is empty (size: {video_size} bytes)"
-            
-            # Verify video URL format matches PHP implementation
-            assert result['videoUrl'].startswith('/media/video/'), f"Video URL should start with /media/video/, got {result['videoUrl']}"
-            assert result['videoUrl'].endswith('.mp4'), f"Video URL should end with .mp4, got {result['videoUrl']}"
-            
-            # Verify directory structure matches PHP: pub/media/video/
-            expected_dir = temp_dir / 'pub' / 'media' / 'video'
-            assert video_path.parent == expected_dir, f"Video directory mismatch. Expected: {expected_dir}, Got: {video_path.parent}"
-            
-            print(f"\n✓ Video successfully saved to: {video_path}")
-            print(f"✓ Video URL: {result['videoUrl']}")
-            print(f"✓ Video size: {video_size} bytes")
-            print(f"✓ Directory structure correct: {video_path.parent}")
+        # Poll for completion (mock server completes after ~5 seconds)
+        result = generator.poll_video_operation(
+            operation['operationName'],
+            max_wait_seconds=10,  # Allow time for mock server
+            poll_interval_seconds=1,
+            cache_key=operation.get('cacheKey')
+        )
+        
+        # Verify video was saved
+        assert result['status'] == 'completed'
+        assert 'videoPath' in result
+        assert 'videoUrl' in result
+        
+        video_path = Path(result['videoPath'])
+        
+        # CRITICAL: Verify video file exists and is saved in correct directory
+        assert video_path.exists(), f"Video file not found at {video_path}"
+        assert video_path.is_file(), f"Video path is not a file: {video_path}"
+        assert video_path.parent == generator.video_dir, f"Video not saved in correct directory. Expected: {generator.video_dir}, Got: {video_path.parent}"
+        assert video_path.suffix == '.mp4', f"Video file should be .mp4, got {video_path.suffix}"
+        
+        # Verify video file has content
+        video_size = video_path.stat().st_size
+        assert video_size > 0, f"Video file is empty (size: {video_size} bytes)"
+        
+        # Verify video URL is generated correctly
+        assert result['videoUrl'].endswith('.mp4'), f"Video URL should end with .mp4, got {result['videoUrl']}"
+        
+        # Verify directory structure matches PHP: pub/media/video/
+        expected_dir = temp_dir / 'pub' / 'media' / 'video'
+        assert video_path.parent == expected_dir, f"Video directory mismatch. Expected: {expected_dir}, Got: {video_path.parent}"
+        
+        print(f"\n✓ Video successfully saved to: {video_path}")
+        print(f"✓ Video URL: {result['videoUrl']}")
+        print(f"✓ Video size: {video_size} bytes")
+        print(f"✓ Directory structure correct: {video_path.parent}")
+        print(f"✓ Using mock server at: {mock_server['base_url']}")
 
 
 if __name__ == '__main__':

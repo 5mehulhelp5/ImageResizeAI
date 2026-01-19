@@ -59,13 +59,94 @@ class Index extends Action
 
     /**
      * Execute action
-     * Handles both base64 format ({base64}.{extension}) and query string format ({imagePath}?params)
+     * Handles both base64 format (/media/resize/{base64}.{extension}) and query string format (/media/resize/ip/{imagePath}?params)
      *
      * @return \Magento\Framework\Controller\ResultInterface
      */
     public function execute()
     {
-        // Support both 'ip' (short) and 'imagePath' (long) parameters for backward compatibility
+        // Check if URL path contains base64 format: /media/resize/{base64}.{extension}
+        $requestPath = $this->getRequest()->getPathInfo();
+        // Remove leading slash and check if it matches base64 pattern
+        $pathParts = explode('/', trim($requestPath, '/'));
+        
+        // Check if last part is base64.{extension} format
+        if (!empty($pathParts)) {
+            $lastPart = end($pathParts);
+            // Match pattern: {base64}.{extension} where base64 encodes: ip/{imagePath}?{params}
+            if (preg_match('/^([A-Za-z0-9_-]+)\.([a-z]+)$/i', $lastPart, $matches)) {
+                $possibleBase64 = $matches[1];
+                $extension = $matches[2];
+                
+                // Try to decode base64
+                $base64String = strtr($possibleBase64, '-_', '+/');
+                // Add padding if needed
+                $padding = strlen($base64String) % 4;
+                if ($padding > 0) {
+                    $base64String .= str_repeat('=', 4 - $padding);
+                }
+                
+                $decoded = @base64_decode($base64String, true);
+                if ($decoded !== false) {
+                    // Decoded string should be: ip/{imagePath}?{params}
+                    // Parse it to extract image path and parameters
+                    if (strpos($decoded, '?') !== false) {
+                        list($pathPart, $queryPart) = explode('?', $decoded, 2);
+                        parse_str($queryPart, $base64Params);
+                    } else {
+                        $pathPart = $decoded;
+                        $base64Params = [];
+                    }
+                    
+                    // Extract image path (remove 'ip/' prefix if present)
+                    $actualImagePath = $pathPart;
+                    if (strpos($actualImagePath, 'ip/') === 0) {
+                        $actualImagePath = substr($actualImagePath, 3);
+                    }
+                    
+                    // Trim trailing slashes (common issue when URL has trailing slash)
+                    $actualImagePath = rtrim($actualImagePath, '/');
+                    
+                    // Ensure image path starts with /
+                    if (!str_starts_with($actualImagePath, '/')) {
+                        $actualImagePath = '/' . $actualImagePath;
+                    }
+                    
+                    // Extract signature if present
+                    $providedSignature = $base64Params['sig'] ?? null;
+                    // Remove 'sig' from params for processing
+                    unset($base64Params['sig']);
+                    
+                    // Ensure format matches extension
+                    if (!isset($base64Params['f'])) {
+                        $base64Params['f'] = $extension;
+                    }
+                    
+                    // Sort parameters to match cache file format
+                    ksort($base64Params);
+                    
+                    // Validate signature if enabled
+                    if ($this->isSignatureEnabled()) {
+                        $salt = $this->getSignatureSalt();
+                        if (!empty($salt)) {
+                            if (empty($providedSignature)) {
+                                throw new \Magento\Framework\Exception\SecurityException(__('Missing signature parameter (sig) in base64 URL'));
+                            }
+                            
+                            $expectedSignature = $this->generateSignature($actualImagePath, $base64Params, $salt);
+                            if (!hash_equals($expectedSignature, $providedSignature)) {
+                                throw new \Magento\Framework\Exception\SecurityException(__('Invalid signature in base64 URL'));
+                            }
+                        }
+                    }
+                    
+                    // Use decoded parameters (signature already validated)
+                    return $this->processResize($actualImagePath, $base64Params, true, $possibleBase64);
+                }
+            }
+        }
+        
+        // Support both 'ip' (short) and 'imagePath' (long) parameters for backward compatibility (query string format)
         $imagePath = $this->getRequest()->getParam('ip', '');
         if (empty($imagePath)) {
             $imagePath = $this->getRequest()->getParam('imagePath', '');
@@ -74,57 +155,6 @@ class Index extends Action
         if (empty($imagePath)) {
             throw new NotFoundException(__('Image path is required'));
         }
-
-        // Check if imagePath is base64 encoded parameters (format: {base64}.{extension})
-        if (preg_match('/^([A-Za-z0-9_-]+)\.([a-z]+)$/i', $imagePath, $matches)) {
-            $possibleBase64 = $matches[1];
-            $extension = $matches[2];
-            
-            // Try to decode base64
-            $base64String = strtr($possibleBase64, '-_', '+/');
-            // Add padding if needed
-            $padding = strlen($base64String) % 4;
-            if ($padding > 0) {
-                $base64String .= str_repeat('=', 4 - $padding);
-            }
-            
-            $decoded = @base64_decode($base64String, true);
-            if ($decoded !== false && $this->isValidQueryString($decoded)) {
-                // This is base64 encoded parameters
-                parse_str($decoded, $base64Params);
-                // Extract image path from parameters
-                $actualImagePath = $base64Params['image'] ?? '/media/default.jpg';
-                // Extract signature if present
-                $providedSignature = $base64Params['sig'] ?? null;
-                // Remove 'image' and 'sig' from params for processing
-                unset($base64Params['image']);
-                unset($base64Params['sig']);
-                // Ensure format matches extension
-                if (!isset($base64Params['f'])) {
-                    $base64Params['f'] = $extension;
-                }
-                // Sort parameters to match cache file format
-                ksort($base64Params);
-                
-                // Validate signature if enabled
-                if ($this->isSignatureEnabled()) {
-                    $salt = $this->getSignatureSalt();
-                    if (!empty($salt)) {
-                        if (empty($providedSignature)) {
-                            throw new \Magento\Framework\Exception\SecurityException(__('Missing signature parameter (sig) in base64 URL'));
-                        }
-                        
-                        $expectedSignature = $this->generateSignature($actualImagePath, $base64Params, $salt);
-                        if (!hash_equals($expectedSignature, $providedSignature)) {
-                            throw new \Magento\Framework\Exception\SecurityException(__('Invalid signature in base64 URL'));
-                        }
-                    }
-                }
-                
-                // Use decoded parameters (signature already validated)
-                return $this->processResize($actualImagePath, $base64Params, true);
-            }
-        }
         
         // Query string format: check if regular URLs are enabled
         if (!$this->isRegularUrlEnabled()) {
@@ -132,6 +162,9 @@ class Index extends Action
         }
         
         // Query string format: extract image path and parameters
+        // Trim trailing slashes (common issue when URL has trailing slash before query params)
+        $imagePath = rtrim($imagePath, '/');
+        
         // Ensure image path starts with /
         if (!str_starts_with($imagePath, '/')) {
             $imagePath = '/' . $imagePath;
@@ -194,6 +227,8 @@ class Index extends Action
                           $this->getRequest()->getParam('silent') === 'true' ||
                           $this->getRequest()->getParam('silent') === '1';
             $returnVideo = $this->getRequest()->getParam('return') === 'video';
+            // Model parameter is ignored - only Veo 3.1 is supported
+            $model = null;
 
             if (empty($prompt) && empty($operationName)) {
                 throw new NotFoundException(__('Prompt parameter is required for video generation'));
@@ -269,7 +304,7 @@ class Index extends Action
             }
 
             // Start video generation
-            $operation = $this->videoService->generateVideoFromImage($sourcePath, $prompt, $aspectRatio, $silentVideo);
+            $operation = $this->videoService->generateVideoFromImage($sourcePath, $prompt, $aspectRatio, $silentVideo, $model);
 
             // Check if video was returned from cache
             if (isset($operation['fromCache']) && $operation['fromCache'] === true) {
@@ -354,9 +389,10 @@ class Index extends Action
      * @param string $imagePath
      * @param array $params
      * @param bool $skipSignatureValidation Skip signature validation (already validated for base64 URLs)
+     * @param string|null $base64String Base64 string for cache path (if using base64 URL format)
      * @return \Magento\Framework\Controller\ResultInterface
      */
-    private function processResize(string $imagePath, array $params, bool $skipSignatureValidation = false)
+    private function processResize(string $imagePath, array $params, bool $skipSignatureValidation = false, ?string $base64String = null)
     {
 
         try {
@@ -415,8 +451,8 @@ class Index extends Action
             }
 
             try {
-                // Resize image
-                $result = $this->imageResizeService->resizeImage($imagePath, $params, $allowPrompt);
+                // Resize image (pass base64 string if available for cache path)
+                $result = $this->imageResizeService->resizeImage($imagePath, $params, $allowPrompt, $base64String);
             } catch (\Exception $e) {
                 // If resize fails due to store/config errors, try to return original image
                 if (stripos($e->getMessage(), 'store') !== false) {
@@ -475,8 +511,15 @@ class Index extends Action
                 $errorDetails['previous'] = $e->getPrevious()->getMessage();
             }
             $this->logger->error('Image resize error: ' . $e->getMessage(), $errorDetails);
-            // Include original message in the exception for debugging
-            throw new NotFoundException(__('Image not found or could not be processed: %1', $e->getMessage()));
+            
+            // Return proper 404 response instead of throwing exception
+            // This prevents Magento's Media application from trying to serve a placeholder
+            /** @var Raw $resultRaw */
+            $resultRaw = $this->resultFactory->create(ResultFactory::TYPE_RAW);
+            $resultRaw->setHttpResponseCode(404);
+            $resultRaw->setHeader('Content-Type', 'text/plain');
+            $resultRaw->setContents('Image not found or could not be processed: ' . $e->getMessage());
+            return $resultRaw;
         }
     }
 

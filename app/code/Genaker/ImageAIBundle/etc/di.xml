@@ -13,6 +13,7 @@
     <preference for="Genaker\ImageAIBundle\Api\ImageResizeServiceInterface" type="Genaker\ImageAIBundle\Service\ImageResizeService"/>
             <type name="Genaker\ImageAIBundle\Service\ImageResizeService">
                 <arguments>
+                    <argument name="urlGenerationService" xsi:type="object">Genaker\ImageAIBundle\Service\ResizeUrlGenerationService</argument>
                     <argument name="geminiService" xsi:type="object">Genaker\ImageAIBundle\Service\GeminiImageModificationService</argument>
                 </arguments>
             </type>
@@ -46,6 +47,13 @@
                 <item name="agento_video" xsi:type="object">Genaker\ImageAIBundle\Console\Command\GenerateVideo</item>
                 <item name="agento_p_video" xsi:type="object">Genaker\ImageAIBundle\Console\Command\GenerateVideoPython</item>
             </argument>
+        </arguments>
+    </type>
+    <!-- Register ResizeUrlGenerationService in Magento registry for global access -->
+    <type name="Genaker\ImageAIBundle\Service\ResizeUrlGenerationService">
+        <arguments>
+            <argument name="scopeConfig" xsi:type="object">Magento\Framework\App\Config\ScopeConfigInterface</argument>
+            <argument name="urlBuilder" xsi:type="object">Magento\Framework\UrlInterface</argument>
         </arguments>
     </type>
 </config>

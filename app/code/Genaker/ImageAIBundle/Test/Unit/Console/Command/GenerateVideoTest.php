@@ -51,6 +51,17 @@ class GenerateVideoTest extends TestCase
     /** @var string */
     private $testImagePath;
 
+    /**
+     * Helper method to call protected execute() method using reflection
+     */
+    private function callExecute(InputInterface $input, OutputInterface $output): int
+    {
+        $reflection = new \ReflectionClass($this->command);
+        $method = $reflection->getMethod('execute');
+        $method->setAccessible(true);
+        return $method->invoke($this->command, $input, $output);
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -140,7 +151,7 @@ class GenerateVideoTest extends TestCase
                     && strpos($data['error'], 'Image path is required') !== false;
             }));
 
-        $result = $this->command->execute($this->inputMock, $this->outputMock);
+        $result = $this->callExecute($this->inputMock, $this->outputMock);
         $this->assertEquals(Cli::RETURN_FAILURE, $result);
     }
 
@@ -170,7 +181,7 @@ class GenerateVideoTest extends TestCase
                     && strpos($data['error'], 'Prompt is required') !== false;
             }));
 
-        $result = $this->command->execute($this->inputMock, $this->outputMock);
+        $result = $this->callExecute($this->inputMock, $this->outputMock);
         $this->assertEquals(Cli::RETURN_FAILURE, $result);
     }
 
@@ -203,7 +214,7 @@ class GenerateVideoTest extends TestCase
                     && strpos($data['error'], 'Video service is not available') !== false;
             }));
 
-        $result = $this->command->execute($this->inputMock, $this->outputMock);
+        $result = $this->callExecute($this->inputMock, $this->outputMock);
         $this->assertEquals(Cli::RETURN_FAILURE, $result);
     }
 
@@ -236,7 +247,7 @@ class GenerateVideoTest extends TestCase
                     && strpos($data['error'], 'Source image not found') !== false;
             }));
 
-        $result = $this->command->execute($this->inputMock, $this->outputMock);
+        $result = $this->callExecute($this->inputMock, $this->outputMock);
         $this->assertEquals(Cli::RETURN_FAILURE, $result);
     }
 
@@ -300,7 +311,7 @@ class GenerateVideoTest extends TestCase
                     && $data['cached'] === true;
             }));
 
-        $result = $this->command->execute($this->inputMock, $this->outputMock);
+        $result = $this->callExecute($this->inputMock, $this->outputMock);
         $this->assertEquals(Cli::RETURN_SUCCESS, $result);
     }
 
@@ -358,7 +369,7 @@ class GenerateVideoTest extends TestCase
                     && $data['operationName'] === $operationName;
             }));
 
-        $result = $this->command->execute($this->inputMock, $this->outputMock);
+        $result = $this->callExecute($this->inputMock, $this->outputMock);
         $this->assertEquals(Cli::RETURN_SUCCESS, $result);
     }
 
@@ -435,7 +446,7 @@ class GenerateVideoTest extends TestCase
                     && $data['videoPath'] === $videoPath;
             }));
 
-        $result = $this->command->execute($this->inputMock, $this->outputMock);
+        $result = $this->callExecute($this->inputMock, $this->outputMock);
         $this->assertEquals(Cli::RETURN_SUCCESS, $result);
     }
 
@@ -477,7 +488,7 @@ class GenerateVideoTest extends TestCase
                     && $data['error'] === $errorMessage;
             }));
 
-        $result = $this->command->execute($this->inputMock, $this->outputMock);
+        $result = $this->callExecute($this->inputMock, $this->outputMock);
         $this->assertEquals(Cli::RETURN_FAILURE, $result);
     }
 
@@ -518,7 +529,7 @@ class GenerateVideoTest extends TestCase
         $this->outputMock->expects($this->once())
             ->method('writeln');
 
-        $result = $this->command->execute($this->inputMock, $this->outputMock);
+        $result = $this->callExecute($this->inputMock, $this->outputMock);
         $this->assertEquals(Cli::RETURN_SUCCESS, $result);
     }
 
@@ -566,7 +577,7 @@ class GenerateVideoTest extends TestCase
         $this->outputMock->expects($this->once())
             ->method('writeln');
 
-        $result = $this->command->execute($this->inputMock, $this->outputMock);
+        $result = $this->callExecute($this->inputMock, $this->outputMock);
         $this->assertEquals(Cli::RETURN_SUCCESS, $result);
     }
 }

@@ -27,13 +27,17 @@ use Symfony\Component\Console\Output\OutputInterface;
 class GenerateVideoPython extends Command
 {
     const INPUT_KEY_IMAGE_PATH = 'image-path';
+    const INPUT_KEY_SECOND_IMAGE = 'second-image';
     const INPUT_KEY_PROMPT = 'prompt';
     const INPUT_KEY_ASPECT_RATIO = 'aspect-ratio';
     const INPUT_KEY_SILENT_VIDEO = 'silent-video';
-    const INPUT_KEY_POLL = 'poll';
+    const INPUT_KEY_SYNC = 'sync';
+    const INPUT_KEY_NO_AUTO_REFERENCE = 'no-auto-reference';
     const INPUT_KEY_API_KEY = 'api-key';
     const INPUT_KEY_BASE_PATH = 'base-path';
+    const INPUT_KEY_SAVE_PATH = 'save-path';
     const INPUT_KEY_BASE_URL = 'base-url';
+    const INPUT_KEY_ENV_FILE = 'env-file';
     const INPUT_KEY_OUTPUT_FORMAT = 'output-format';
 
     /**
@@ -82,10 +86,16 @@ class GenerateVideoPython extends Command
                 'Path(s) to source image(s) (relative to pub/media/ or absolute path). Can specify multiple paths.'
             ),
             new InputOption(
+                self::INPUT_KEY_SECOND_IMAGE,
+                'si',
+                InputOption::VALUE_OPTIONAL,
+                'Optional second image path or URL to include in the payload for video generation'
+            ),
+            new InputOption(
                 self::INPUT_KEY_PROMPT,
                 'p',
                 InputOption::VALUE_REQUIRED,
-                'Video generation prompt'
+                'Video generation prompt. When using --second-image, you can reference images as: "image1"/"first image" for the first image, "image2"/"second image" for the second image, or use image filenames.'
             ),
             new InputOption(
                 self::INPUT_KEY_ASPECT_RATIO,
@@ -101,10 +111,16 @@ class GenerateVideoPython extends Command
                 'Generate silent video (helps avoid audio-related safety filters)'
             ),
             new InputOption(
-                self::INPUT_KEY_POLL,
+                self::INPUT_KEY_SYNC,
                 null,
                 InputOption::VALUE_NONE,
                 'Wait for video generation to complete (synchronous mode)'
+            ),
+            new InputOption(
+                self::INPUT_KEY_NO_AUTO_REFERENCE,
+                null,
+                InputOption::VALUE_NONE,
+                'Disable automatic image reference enhancement in prompt (use if you want full control over prompt)'
             ),
             new InputOption(
                 self::INPUT_KEY_API_KEY,
@@ -116,13 +132,25 @@ class GenerateVideoPython extends Command
                 self::INPUT_KEY_BASE_PATH,
                 null,
                 InputOption::VALUE_OPTIONAL,
-                'Base path for Magento installation (defaults to current directory)'
+                'Base path for Magento installation (defaults to current directory or MAGENTO_BASE_PATH env)'
+            ),
+            new InputOption(
+                self::INPUT_KEY_SAVE_PATH,
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Path where videos should be saved, relative to base_path or absolute (defaults to pub/media/video or VIDEO_SAVE_PATH env)'
             ),
             new InputOption(
                 self::INPUT_KEY_BASE_URL,
                 null,
                 InputOption::VALUE_OPTIONAL,
-                'Base URL for generating full video URLs (defaults to Magento store base URL)'
+                'Base URL for generating full video URLs (defaults to Magento store base URL or MAGENTO_BASE_URL env)'
+            ),
+            new InputOption(
+                self::INPUT_KEY_ENV_FILE,
+                null,
+                InputOption::VALUE_OPTIONAL,
+                'Path to .env file (defaults to .env in script directory or current directory)'
             ),
             new InputOption(
                 self::INPUT_KEY_OUTPUT_FORMAT,
@@ -153,12 +181,16 @@ class GenerateVideoPython extends Command
             $this->state->setAreaCode(Area::AREA_CRONTAB);
 
             $imagePaths = $input->getOption(self::INPUT_KEY_IMAGE_PATH);
+            $secondImage = $input->getOption(self::INPUT_KEY_SECOND_IMAGE);
             $prompt = $input->getOption(self::INPUT_KEY_PROMPT);
             $aspectRatio = $input->getOption(self::INPUT_KEY_ASPECT_RATIO);
             $silentVideo = $input->getOption(self::INPUT_KEY_SILENT_VIDEO);
-            $poll = $input->getOption(self::INPUT_KEY_POLL);
+            $sync = $input->getOption(self::INPUT_KEY_SYNC);
+            $noAutoReference = $input->getOption(self::INPUT_KEY_NO_AUTO_REFERENCE);
             $apiKey = $input->getOption(self::INPUT_KEY_API_KEY);
             $basePath = $input->getOption(self::INPUT_KEY_BASE_PATH);
+            $savePath = $input->getOption(self::INPUT_KEY_SAVE_PATH);
+            $envFile = $input->getOption(self::INPUT_KEY_ENV_FILE);
             // Get base URL from Magento config (or use provided one)
             $baseUrl = $input->getOption(self::INPUT_KEY_BASE_URL) ?: $this->getBaseUrl();
 
@@ -214,6 +246,11 @@ class GenerateVideoPython extends Command
                 $command .= ' -ip ' . escapeshellarg($imagePath);
             }
 
+            // Add second image if provided
+            if ($secondImage) {
+                $command .= ' -si ' . escapeshellarg($secondImage);
+            }
+
             // Add prompt
             $command .= ' -p ' . escapeshellarg($prompt);
 
@@ -227,9 +264,14 @@ class GenerateVideoPython extends Command
                 $command .= ' -sv';
             }
 
-            // Add poll flag
-            if ($poll) {
-                $command .= ' --poll';
+            // Add sync flag (replaces poll)
+            if ($sync) {
+                $command .= ' --sync';
+            }
+
+            // Add no-auto-reference flag
+            if ($noAutoReference) {
+                $command .= ' --no-auto-reference';
             }
 
             // Add API key if provided
@@ -237,8 +279,18 @@ class GenerateVideoPython extends Command
                 $command .= ' --api-key ' . escapeshellarg($apiKey);
             }
 
+            // Add save path if provided
+            if ($savePath) {
+                $command .= ' --save-path ' . escapeshellarg($savePath);
+            }
+
             // Always add base URL (from Magento config or provided)
             $command .= ' --base-url ' . escapeshellarg($baseUrl);
+
+            // Add env file if provided
+            if ($envFile) {
+                $command .= ' --env-file ' . escapeshellarg($envFile);
+            }
 
             // Execute Python script
             $output->writeln('Executing Python script...', OutputInterface::VERBOSITY_VERBOSE);
@@ -404,8 +456,13 @@ class GenerateVideoPython extends Command
             
             return rtrim($cleanBaseUrl, '/');
         } catch (\Exception $e) {
-            // Fallback to default
-            return 'https://app.lc.test';
+            // Fallback - try to detect from environment or use default
+            $envBaseUrl = getenv('MAGENTO_BASE_URL') ?: getenv('BASE_URL');
+            if ($envBaseUrl) {
+                return rtrim($envBaseUrl, '/');
+            }
+            // Last resort fallback
+            return 'https://localhost';
         }
     }
 }

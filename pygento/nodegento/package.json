@@ -1,0 +1,27 @@
+{
+  "name": "agento-video",
+  "version": "1.0.0",
+  "description": "Generate video from images using Google Gemini Veo 3.1 API",
+  "main": "agento_video.js",
+  "bin": {
+    "agento-video": "./agento_video.js"
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "gemini",
+    "veo",
+    "video",
+    "generation",
+    "ai"
+  ],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "axios": "^1.6.0",
+    "dotenv": "^16.3.1",
+    "commander": "^11.1.0",
+    "chalk": "^4.1.2"
+  }
+}

@@ -16,8 +16,10 @@ use Genaker\ImageAIBundle\Controller\Resize\Index;
 use Genaker\ImageAIBundle\Api\ImageResizeServiceInterface;
 use Genaker\ImageAIBundle\Model\ResizeResult;
 use Genaker\ImageAIBundle\Service\LockManager;
+use Genaker\ImageAIBundle\Service\GeminiVideoDirectService;
 use Magento\Framework\App\Action\Context;
 use Magento\Framework\App\RequestInterface;
+use Magento\Framework\App\Request\Http as HttpRequest;
 use Magento\Framework\Controller\ResultFactory;
 use Magento\Framework\Controller\Result\Raw;
 use Magento\Framework\App\Config\ScopeConfigInterface;
@@ -54,7 +56,10 @@ class IndexTest extends TestCase
     /** @var MockObject|Session */
     private $authSessionMock;
 
-    /** @var MockObject|RequestInterface */
+    /** @var MockObject|GeminiVideoDirectService */
+    private $videoServiceMock;
+
+    /** @var MockObject|HttpRequest */
     private $requestMock;
 
     /** @var MockObject|ResultFactory */
@@ -72,12 +77,17 @@ class IndexTest extends TestCase
         $this->httpHeaderMock = $this->createMock(Header::class);
         $this->lockManagerMock = $this->createMock(LockManager::class);
         $this->authSessionMock = $this->createMock(Session::class);
-        $this->requestMock = $this->createMock(RequestInterface::class);
+        $this->videoServiceMock = $this->createMock(GeminiVideoDirectService::class);
+        $this->requestMock = $this->createMock(HttpRequest::class);
         $this->resultFactoryMock = $this->createMock(ResultFactory::class);
 
         // Configure context mock
         $this->contextMock->method('getRequest')
             ->willReturn($this->requestMock);
+
+        // Configure request mock - add getPathInfo() method
+        $this->requestMock->method('getPathInfo')
+            ->willReturn('');
 
         // Configure scope config mock
         $this->scopeConfigMock->method('getValue')
@@ -111,7 +121,8 @@ class IndexTest extends TestCase
             $this->loggerMock,
             $this->httpHeaderMock,
             $this->lockManagerMock,
-            $this->authSessionMock
+            $this->authSessionMock,
+            $this->videoServiceMock
         );
 
         // Set result factory using reflection

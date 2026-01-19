@@ -8,19 +8,23 @@
  * @copyright   Copyright (c) 2024 Genaker
  */
 
-namespace Genaker\ImageAIBundle\Helper;
+namespace Genaker\ImageAIBundle\ViewModel;
 
 use Genaker\ImageAIBundle\Service\ResizeUrlGenerationService;
+use Magento\Framework\View\Element\Block\ArgumentInterface;
 
 /**
- * Image Resize URL Helper
- * Global helper for generating image resize URLs
+ * Resize URL ViewModel
+ * Provides methods for generating image resize URLs in templates
  * 
- * Usage in templates:
- * $helper = $this->helper(\Genaker\ImageAIBundle\Helper\ImageResizeUrl::class);
- * $url = $helper->getResizeUrl('catalog/product/image.jpg', ['w' => 400, 'h' => 400]);
+ * Usage in template (.phtml):
+ * <?php
+ * /** @var \Genaker\ImageAIBundle\ViewModel\ResizeUrl $resizeUrlViewModel *\/
+ * $resizeUrl = $resizeUrlViewModel->getResizeUrl('catalog/product/image.jpg', ['w' => 400, 'h' => 400]);
+ * ?>
+ * <img src="<?= $escaper->escapeUrl($resizeUrl) ?>" alt="Product Image" />
  */
-class ImageResizeUrl
+class ResizeUrl implements ArgumentInterface
 {
     private ResizeUrlGenerationService $urlGenerationService;
 
@@ -44,7 +48,7 @@ class ImageResizeUrl
     }
 
     /**
-     * Generate base64 URL format
+     * Generate base64 URL format (optimized for nginx caching)
      *
      * @param string $imagePath
      * @param array $params
@@ -66,5 +70,4 @@ class ImageResizeUrl
     {
         return $this->urlGenerationService->generateRegularUrl($imagePath, $params);
     }
-
-
+}

@@ -21,11 +21,12 @@ interface ImageResizeServiceInterface
      * @param string $imagePath Image path to resize
      * @param array $params Resize parameters (w, h, q, a, f, prompt, trim, etc.)
      * @param bool $allowPrompt Whether to allow prompt parameter
+     * @param string|null $base64String Optional base64 string for cache path (from URL)
      * @return \Genaker\ImageAIBundle\Model\ResizeResult
      * @throws \InvalidArgumentException
      * @throws \RuntimeException
      */
-    public function resizeImage(string $imagePath, array $params, bool $allowPrompt = false);
+    public function resizeImage(string $imagePath, array $params, bool $allowPrompt = false, ?string $base64String = null);
 
     /**
      * Get public directory path

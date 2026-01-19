@@ -35,8 +35,9 @@ class GeminiVideoDirectService
     private File $filesystem;
     private Curl $httpClient;
     private string $apiKey;
-    private string $baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
-    private string $model = 'veo-3.1-generate-preview'; // Veo 3.1 preview model for Google AI Studio API key
+    private string $baseUrl;
+    private string $model;
+    private string $modelType; // 'veo'
 
     public function __construct(
         ScopeConfigInterface $scopeConfig,
@@ -49,6 +50,30 @@ class GeminiVideoDirectService
         $this->logger = $logger ?? \Magento\Framework\App\ObjectManager::getInstance()->get(LoggerInterface::class);
         $this->filesystem = $filesystem ?? \Magento\Framework\App\ObjectManager::getInstance()->get(File::class);
         $this->apiKey = $this->getApiKey();
+        
+        // Determine model from environment variable or use default
+        $this->initializeModel();
+    }
+
+    /**
+     * Initialize model configuration
+     * Only supports Veo 3.1 model
+     * 
+     * @param string|null $requestedModel Optional model name (ignored, always uses Veo)
+     * @return void
+     */
+    private function initializeModel(?string $requestedModel = null): void
+    {
+        // Always use Veo 3.1 model
+        $this->modelType = 'veo';
+        $this->baseUrl = 'https://generativelanguage.googleapis.com/v1beta';
+        $this->model = 'veo-3.1-generate-preview';
+        
+        $this->logger->info('Video model initialized', [
+            'modelType' => $this->modelType,
+            'model' => $this->model,
+            'baseUrl' => $this->baseUrl
+        ]);
     }
 
     /**
@@ -70,10 +95,11 @@ class GeminiVideoDirectService
      * @param string $prompt Video generation prompt
      * @param string|null $aspectRatio Aspect ratio (e.g., "16:9", "9:16", "1:1")
      * @param bool $silentVideo If true, appends "silent video" to prompt to avoid audio-related safety filters
+     * @param string|null $model Optional model name (ignored, always uses Veo 3.1)
      * @return array Operation details with operation name/id, or cached video details
      * @throws \RuntimeException
      */
-    public function generateVideoFromImage(string $imagePath, string $prompt, ?string $aspectRatio = '16:9', bool $silentVideo = false): array
+    public function generateVideoFromImage(string $imagePath, string $prompt, ?string $aspectRatio = '16:9', bool $silentVideo = false, ?string $model = null): array
     {
         if (!$this->isAvailable()) {
             throw new \RuntimeException(
@@ -83,14 +109,28 @@ class GeminiVideoDirectService
         }
 
         try {
+            // Initialize model if requested (overrides environment variable)
+            if ($model !== null) {
+                $this->logger->info('Model parameter received in generateVideoFromImage', [
+                    'requestedModel' => $model,
+                    'currentModelType' => $this->modelType ?? 'not set'
+                ]);
+                $this->initializeModel($model);
+                $this->logger->info('Model initialized after parameter', [
+                    'modelType' => $this->modelType,
+                    'model' => $this->model,
+                    'baseUrl' => $this->baseUrl
+                ]);
+            }
+            
             // Append "silent video" to prompt if requested (helps avoid audio-related safety filters)
             $finalPrompt = $prompt;
             if ($silentVideo) {
                 $finalPrompt = trim($prompt) . ' silent video';
             }
             
-            // Generate cache key from parameters (include silentVideo flag in cache key)
-            $cacheKey = $this->generateCacheKey($imagePath, $finalPrompt, $aspectRatio);
+            // Generate cache key from parameters (include model and silentVideo flag in cache key)
+            $cacheKey = $this->generateCacheKey($imagePath, $finalPrompt, $aspectRatio, $model);
             
             // Check if cached video exists
             $cachedVideo = $this->getCachedVideo($cacheKey);
@@ -111,14 +151,13 @@ class GeminiVideoDirectService
             // Detect MIME type
             $mimeType = $this->detectMimeType($imagePath, $imageContent);
 
-            // Build API endpoint
-            // Veo 3.1 uses predictLongRunning endpoint (as per Google REST API example)
-            // For Google AI Studio API keys, use predictLongRunning method with x-goog-api-key header
+            // Build API endpoint - Veo 3.1 uses predictLongRunning endpoint
             $submitUrl = "{$this->baseUrl}/models/{$this->model}:predictLongRunning";
             
             // Log the endpoint for debugging
-            $this->logger->warning('Gemini video API request', [
+            $this->logger->info('Video API request', [
                 'url' => $submitUrl,
+                'modelType' => $this->modelType,
                 'model' => $this->model,
                 'baseUrl' => $this->baseUrl,
                 'hasApiKey' => !empty($this->apiKey),
@@ -127,9 +166,7 @@ class GeminiVideoDirectService
                 'finalPrompt' => $finalPrompt
             ]);
 
-            // Build payload for Veo 3.1 API predictLongRunning endpoint
-            // predictLongRunning expects 'instances' structure (as per Google REST API example)
-            // Image field requires both bytesBase64Encoded and mimeType
+            // Build payload - Veo 3.1 payload structure
             $payload = [
                 'instances' => [
                     [
@@ -143,18 +180,20 @@ class GeminiVideoDirectService
                 'parameters' => []
             ];
 
-            // Add aspect ratio if specified (in parameters)
+            // Add aspect ratio if specified
             if ($aspectRatio) {
                 $payload['parameters']['aspectRatio'] = $aspectRatio;
             }
 
             // Submit video generation request
             // Note: Video generation is a heavy operation - ensure server max_execution_time > maxWaitSeconds
-            // For predictLongRunning, API key must be in header (x-goog-api-key)
-            $this->httpClient->setHeaders([
+            // Set headers - Veo uses x-goog-api-key header
+            $headers = [
                 'Content-Type' => 'application/json',
                 'x-goog-api-key' => $this->apiKey
-            ]);
+            ];
+            
+            $this->httpClient->setHeaders($headers);
             $this->httpClient->setTimeout(30);
             $this->httpClient->post($submitUrl, json_encode($payload));
 
@@ -188,10 +227,11 @@ class GeminiVideoDirectService
                 }
                 
                 // Log full response for debugging
-                $this->logger->error('Gemini API error response', [
+                $this->logger->error('Video API error response', [
                     'status' => $responseCode,
                     'response' => $responseBody,
                     'endpoint' => $submitUrl,
+                    'modelType' => $this->modelType,
                     'model' => $this->model,
                     'apiKey' => substr($this->apiKey, 0, 10) . '...', // Log partial key for debugging
                     'payload' => json_encode($payload) // Log payload for debugging
@@ -210,6 +250,7 @@ class GeminiVideoDirectService
 
             $data = json_decode($responseBody, true);
             
+            // Veo 3.1 response handling
             if (!isset($data['name'])) {
                 throw new \RuntimeException('Invalid API response: operation name not found');
             }
@@ -255,6 +296,8 @@ class GeminiVideoDirectService
         }
 
         $startTime = time();
+        
+        // Build polling URL - Veo uses operation name relative to base URL
         $pollUrl = "{$this->baseUrl}/{$operationName}";
 
         try {
@@ -263,10 +306,10 @@ class GeminiVideoDirectService
                 // Get operation status
                 // Note: Polling timeout should be shorter than server max_execution_time
                 // Default maxWaitSeconds is 300s (5 min), ensure PHP max_execution_time > 300
-                // For predictLongRunning, API key must be in header (x-goog-api-key)
-                $this->httpClient->setHeaders([
-                    'x-goog-api-key' => $this->apiKey
-                ]);
+                // Set headers - Veo uses x-goog-api-key header
+                $headers = ['x-goog-api-key' => $this->apiKey];
+                
+                $this->httpClient->setHeaders($headers);
                 $this->httpClient->setTimeout($pollIntervalSeconds + 5); // Slightly longer than poll interval
                 $this->httpClient->get($pollUrl);
 
@@ -291,7 +334,8 @@ class GeminiVideoDirectService
                     }
                     
                     // Log full error details
-                    $this->logger->error('Gemini API polling error', [
+                    $this->logger->error('Video API polling error', [
+                        'modelType' => $this->modelType,
                         'operationName' => $operationName,
                         'responseCode' => $responseCode,
                         'errorMessage' => $errorMessage,
@@ -712,7 +756,6 @@ class GeminiVideoDirectService
         
         // Remove store code from base URL (e.g., /default/) to get clean base URL
         // Media URLs should not include store code - they're accessible directly
-        // Base URL might be: https://app.lc.test/default/ -> https://app.lc.test/
         $parsedUrl = parse_url($baseUrl);
         $scheme = $parsedUrl['scheme'] ?? 'http';
         $host = $parsedUrl['host'] ?? '';
@@ -787,6 +830,64 @@ class GeminiVideoDirectService
     }
 
     /**
+     * Get Vertex AI endpoint from config or environment variable
+     *
+     * @return string
+     */
+    private function getVertexAiEndpoint(): string
+    {
+        // Try Magento config first
+        $endpoint = $this->scopeConfig->getValue(
+            'genaker_imageaibundle/general/vertex_ai_endpoint',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+        );
+
+        // Fallback to environment variable
+        if (empty($endpoint)) {
+            $endpoint = getenv('VERTEX_AI_ENDPOINT') ?: '';
+        }
+
+        // Default value if not configured
+        if (empty($endpoint)) {
+            $endpoint = 'https://us-central1-aiplatform.googleapis.com/v1/projects/my-project-123/locations/us-central1/publishers/google/models/imagegeneration@006';
+        }
+
+        return $endpoint;
+    }
+
+    /**
+     * Get Vertex AI access token from config or environment variable
+     *
+     * @return string
+     */
+    private function getVertexAiAccessToken(): string
+    {
+        // Try Magento config first
+        $token = $this->scopeConfig->getValue(
+            'genaker_imageaibundle/general/vertex_ai_access_token',
+            \Magento\Store\Model\ScopeInterface::SCOPE_STORE
+        );
+
+        // Decrypt if encrypted
+        if ($token && class_exists('\Magento\Framework\Encryption\EncryptorInterface')) {
+            try {
+                $encryptor = \Magento\Framework\App\ObjectManager::getInstance()
+                    ->get(\Magento\Framework\Encryption\EncryptorInterface::class);
+                $token = $encryptor->decrypt($token);
+            } catch (\Exception $e) {
+                // Ignore decryption errors
+            }
+        }
+
+        // Fallback to environment variable
+        if (empty($token)) {
+            $token = getenv('VERTEX_AI_ACCESS_TOKEN') ?: '';
+        }
+
+        return $token;
+    }
+
+    /**
      * Detect MIME type from file path and content
      *
      * @param string $filePath
@@ -826,7 +927,7 @@ class GeminiVideoDirectService
      * @param string|null $aspectRatio Aspect ratio
      * @return string Cache key (MD5 hash)
      */
-    private function generateCacheKey(string $imagePath, string $prompt, ?string $aspectRatio = '16:9'): string
+    private function generateCacheKey(string $imagePath, string $prompt, ?string $aspectRatio = '16:9', ?string $model = null): string
     {
         // Normalize image path (remove pub/media prefix if present, use relative path)
         $normalizedPath = $imagePath;
@@ -836,8 +937,11 @@ class GeminiVideoDirectService
             $normalizedPath = str_replace('/pub/media/', '', $imagePath);
         }
         
+        // Include model in cache key to prevent cache collisions between models
+        $modelSuffix = $model ? '_' . strtolower($model) : '';
+        
         // Create cache key from normalized parameters
-        $cacheString = $normalizedPath . '|' . trim($prompt) . '|' . ($aspectRatio ?? '16:9');
+        $cacheString = $normalizedPath . '|' . trim($prompt) . '|' . ($aspectRatio ?? '16:9') . $modelSuffix;
         return md5($cacheString);
     }
 
@@ -880,4 +984,88 @@ class GeminiVideoDirectService
         return null;
     }
 
+    /**
+     * Build video response array from video path
+     *
+     * @param string $videoPath Absolute path to video file
+     * @param string $cacheKey Cache key
+     * @param bool $fromCache Whether video was from cache
+     * @return array Video response with URLs
+     */
+    private function buildVideoResponse(string $videoPath, string $cacheKey, bool $fromCache = false): array
+    {
+        $videoUrl = $this->getVideoUrl($videoPath);
+        $embedUrl = $this->getEmbedUrl($videoUrl);
+
+        return [
+            'videoUrl' => $videoUrl,
+            'embedUrl' => $embedUrl,
+            'videoPath' => $videoPath,
+            'status' => 'completed',
+            'cached' => $fromCache,
+            'fromCache' => $fromCache
+        ];
+    }
+
+    /**
+     * Save video from binary data
+     *
+     * @param string $videoData Binary video data
+     * @param string $cacheKey Cache key for filename
+     * @return string Absolute path to saved video file
+     */
+    private function saveVideoFromData(string $videoData, string $cacheKey): string
+    {
+        try {
+            $videoDir = BP . '/pub/media/video/';
+            if (!is_dir($videoDir)) {
+                $this->filesystem->createDirectory($videoDir, 0755);
+            }
+
+            $filename = 'veo_' . md5($cacheKey) . '.mp4';
+            $videoPath = $videoDir . $filename;
+
+            $this->filesystem->filePutContents($videoPath, $videoData);
+
+            return $videoPath;
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to save video from data', [
+                'error' => $e->getMessage(),
+                'key' => $cacheKey
+            ]);
+            throw new \RuntimeException('Failed to save video: ' . $e->getMessage(), 0, $e);
+        }
+    }
+
+    /**
+     * Download video from Google Cloud Storage URI
+     *
+     * @param string $gcsUri GCS URI (e.g., gs://bucket/path or https://storage.googleapis.com/...)
+     * @param string $cacheKey Cache key for filename
+     * @return string Absolute path to downloaded video file
+     */
+    private function downloadVideoFromGcs(string $gcsUri, string $cacheKey): string
+    {
+        try {
+            // Convert gs:// URI to HTTPS URL if needed
+            $downloadUrl = $gcsUri;
+            if (strpos($gcsUri, 'gs://') === 0) {
+                // Convert gs://bucket/path to https://storage.googleapis.com/bucket/path
+                $downloadUrl = str_replace('gs://', 'https://storage.googleapis.com/', $gcsUri);
+            }
+
+            // Download using the same redirect-handling method
+            $videoContent = $this->downloadVideoWithRedirects($downloadUrl);
+
+            // Save to local file
+            return $this->saveVideoFromData($videoContent, $cacheKey);
+        } catch (\Exception $e) {
+            $this->logger->error('Failed to download video from GCS', [
+                'error' => $e->getMessage(),
+                'gcsUri' => $gcsUri,
+                'key' => $cacheKey
+            ]);
+            throw new \RuntimeException('Failed to download video from GCS: ' . $e->getMessage(), 0, $e);
+        }
+    }
 }
