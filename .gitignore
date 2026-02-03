@@ -18,12 +18,12 @@ nodegento/node_modules/*
 
 # Python
 pygento/__pycache__/*
-pygento/pub/
+pygento/pub/*
 pygento/real_api_output/*
 
 # Magento
 /var/
-/pub/static/
+/pub/*
 /pub/media/cache/
 /pub/media/tmp/
 /pub/media/import/
@@ -34,8 +34,4 @@ pygento/real_api_output/*
 *.log
 
 .gitignore
-pygento/.venv/lib64
-pygento/.venv/pyvenv.cfg
-pygento/.venv/bin/python
-pygento/.venv/bin/python3
-pygento/.venv/bin/python3.12
+pygento/.venv/*
